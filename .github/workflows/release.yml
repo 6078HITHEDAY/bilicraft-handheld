@@ -49,4 +49,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/bilicraft handle-*.apk
+          body_path: release-notes.md
           generate_release_notes: true
