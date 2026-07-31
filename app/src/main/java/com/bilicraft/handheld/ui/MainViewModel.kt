@@ -13,6 +13,7 @@ import com.bilicraft.handheld.auth.AccountSummary
 import com.bilicraft.handheld.auth.AuthState
 import com.bilicraft.handheld.config.QuickToolLink
 import com.bilicraft.handheld.config.ServerConfig
+import com.bilicraft.handheld.config.ThemeMode
 import com.bilicraft.handheld.config.UiPreferences
 import com.bilicraft.handheld.externalplugin.ExternalPluginEntry
 import com.bilicraft.handheld.externalplugin.ExternalPluginEntrypoint
@@ -466,6 +467,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setThemeMode(themeMode: ThemeMode) {
+        viewModelScope.launch {
+            uiConfigRepo.setThemeMode(themeMode)
+        }
+    }
+
     fun selectAppIcon(icon: AppIcon) {
         if (icon.id == _currentAppIcon.value.id) return
         appIconManager.apply(icon)
@@ -481,13 +488,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         updateManager.dismiss()
     }
 
-    fun refreshOfficialPluginMarket() {
+    fun refreshOfficialPluginMarket(silent: Boolean = false) {
+        if (officialMarket.value.loading) return
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { officialPluginMarket.refresh() }
-            _uiMessage.value = result.fold(
-                onSuccess = { "插件市场已刷新，共 $it 个插件" },
-                onFailure = { "插件市场刷新失败：${it.message ?: "未知错误"}" }
-            )
+            if (!silent) {
+                _uiMessage.value = result.fold(
+                    onSuccess = { "插件市场已刷新，共 $it 个插件" },
+                    onFailure = { "插件市场刷新失败：${it.message ?: "未知错误"}" }
+                )
+            }
         }
     }
 

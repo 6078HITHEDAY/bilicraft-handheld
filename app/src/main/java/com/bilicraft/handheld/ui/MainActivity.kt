@@ -13,11 +13,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bilicraft.handheld.AppContainer
+import com.bilicraft.handheld.config.ThemeMode
 
 /**
  * 唯一入口 Activity：初始化依赖容器、申请通知权限、承载 Compose UI。
@@ -34,10 +37,15 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
 
         setContent {
-            val dark = isSystemInDarkTheme()
+            val vm: MainViewModel = viewModel()
+            val preferences by vm.preferences.collectAsStateWithLifecycle()
+            val dark = when (preferences.themeMode) {
+                ThemeMode.System -> isSystemInDarkTheme()
+                ThemeMode.Light -> false
+                ThemeMode.Dark -> true
+            }
             MaterialTheme(colorScheme = if (dark) BilicraftDarkColors else BilicraftLightColors) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    val vm: MainViewModel = viewModel()
                     AppRoot(vm)
                 }
             }

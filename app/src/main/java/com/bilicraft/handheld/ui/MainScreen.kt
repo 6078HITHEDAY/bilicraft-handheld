@@ -1,5 +1,6 @@
 package com.bilicraft.handheld.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,6 +50,8 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Web
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -77,12 +80,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -109,6 +115,7 @@ import com.bilicraft.handheld.cdk.CdkEntry
 import com.bilicraft.handheld.cdk.CdkState
 import com.bilicraft.handheld.config.QuickToolLink
 import com.bilicraft.handheld.config.ServerConfig
+import com.bilicraft.handheld.config.ThemeMode
 import com.bilicraft.handheld.externalplugin.ExternalPluginEntry
 import com.bilicraft.handheld.externalplugin.ExternalPluginEntrypoint
 import com.bilicraft.handheld.externalplugin.ExternalPluginPanelHandle
@@ -142,13 +149,22 @@ private enum class MainTab(val title: String, val icon: ImageVector) {
 fun MainScreen(vm: MainViewModel) {
     val uiMessage by vm.uiMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    var selectedTab by remember { mutableStateOf(MainTab.Sessions) }
+    var selectedTab by rememberSaveable { mutableStateOf(MainTab.Sessions) }
+    val mainTabStateHolder = rememberSaveableStateHolder()
     val activeExternalPluginPanel by vm.activeExternalPluginPanel.collectAsStateWithLifecycle()
+    val officialMarket by vm.officialMarket.collectAsStateWithLifecycle()
+    val pluginUpdateCount = officialMarket.entries.count { it.updateAvailable }
 
     LaunchedEffect(uiMessage) {
         val message = uiMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
         vm.consumeUiMessage()
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == MainTab.Plugins) {
+            vm.refreshOfficialPluginMarket(silent = true)
+        }
     }
 
     activeExternalPluginPanel?.let { request ->
@@ -170,7 +186,21 @@ fun MainScreen(vm: MainViewModel) {
                     NavigationBarItem(
                         selected = selectedTab == tab,
                         onClick = { selectedTab = tab },
-                        icon = { Icon(tab.icon, contentDescription = tab.title) },
+                        icon = {
+                            if (tab == MainTab.Plugins && pluginUpdateCount > 0) {
+                                BadgedBox(
+                                    badge = {
+                                        Badge {
+                                            Text(if (pluginUpdateCount > 9) "9+" else pluginUpdateCount.toString())
+                                        }
+                                    }
+                                ) {
+                                    Icon(tab.icon, contentDescription = tab.title)
+                                }
+                            } else {
+                                Icon(tab.icon, contentDescription = tab.title)
+                            }
+                        },
                         label = { Text(tab.title) }
                     )
                 }
@@ -178,11 +208,13 @@ fun MainScreen(vm: MainViewModel) {
         }
     ) { innerPadding ->
         Box(Modifier.fillMaxSize().padding(innerPadding)) {
-            when (selectedTab) {
-                MainTab.Sessions -> ServerSessionsScreen(vm)
-                MainTab.Tools -> QuickToolsScreen(vm)
-                MainTab.Plugins -> PluginCenterScreen(vm)
-                MainTab.Settings -> SettingsScreen(vm)
+            mainTabStateHolder.SaveableStateProvider(selectedTab.name) {
+                when (selectedTab) {
+                    MainTab.Sessions -> ServerSessionsScreen(vm)
+                    MainTab.Tools -> QuickToolsScreen(vm)
+                    MainTab.Plugins -> PluginCenterScreen(vm)
+                    MainTab.Settings -> SettingsScreen(vm)
+                }
             }
         }
     }
@@ -227,8 +259,9 @@ private fun ServerSessionsScreen(vm: MainViewModel) {
     val preferences by vm.preferences.collectAsStateWithLifecycle()
     val commandSuggestions by vm.commandSuggestions.collectAsStateWithLifecycle()
     val pluginEntrypoints by vm.externalPluginEntrypoints.collectAsStateWithLifecycle()
+    val serverSessionStateHolder = rememberSaveableStateHolder()
 
-    var selectedIndex by remember { mutableIntStateOf(0) }
+    var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     var editingServer by remember { mutableStateOf<ServerConfig?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var menuServer by remember { mutableStateOf<ServerConfig?>(null) }
@@ -299,20 +332,22 @@ private fun ServerSessionsScreen(vm: MainViewModel) {
                 val selectedConn = runtime.connectionStates[selectedServer.id] ?: ConnectionState.Disconnected
                 val selectedLog = runtime.chatLogs[selectedServer.id].orEmpty()
                 val isActiveServer = runtime.activeServerId == selectedServer.id
-                ServerSessionPage(
-                    server = selectedServer,
-                    conn = selectedConn,
-                    log = selectedLog,
-                    isActiveServer = isActiveServer,
-                    chatAutoScroll = preferences.chatAutoScroll,
-                    commandCompletionEnabled = preferences.commandCompletionEnabled,
-                    commandSuggestions = commandSuggestions,
-                    onConnect = { vm.connect(selectedServer) },
-                    onStop = vm::stopConnection,
-                    onSend = { vm.sendChat(selectedServer.id, it) },
-                    onRequestCommandSuggestions = { vm.requestCommandSuggestions(selectedServer.id, it) },
-                    onEdit = { editingServer = selectedServer }
-                )
+                serverSessionStateHolder.SaveableStateProvider(selectedServer.id) {
+                    ServerSessionPage(
+                        server = selectedServer,
+                        conn = selectedConn,
+                        log = selectedLog,
+                        isActiveServer = isActiveServer,
+                        chatAutoScroll = preferences.chatAutoScroll,
+                        commandCompletionEnabled = preferences.commandCompletionEnabled,
+                        commandSuggestions = commandSuggestions,
+                        onConnect = { vm.connect(selectedServer) },
+                        onStop = vm::stopConnection,
+                        onSend = { vm.sendChat(selectedServer.id, it) },
+                        onRequestCommandSuggestions = { vm.requestCommandSuggestions(selectedServer.id, it) },
+                        onEdit = { editingServer = selectedServer }
+                    )
+                }
             }
         }
     }
@@ -431,9 +466,7 @@ private fun ServerSessionPage(
         )
 
         Spacer(Modifier.height(12.dp))
-        key(server.id) {
-            ChatLog(log = log, autoScroll = chatAutoScroll, modifier = Modifier.weight(1f).fillMaxWidth())
-        }
+        ChatLog(log = log, autoScroll = chatAutoScroll, modifier = Modifier.weight(1f).fillMaxWidth())
         val visibleSuggestions = commandSuggestions.takeIf {
             connected && commandCompletionEnabled && it.requestInput == input.text && it.hasSuggestions
         }
@@ -654,8 +687,22 @@ private fun CommandSuggestionBar(
 @Composable
 private fun ChatLog(log: List<ChatEvent>, autoScroll: Boolean, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
-    LaunchedEffect(log.size, autoScroll) {
-        if (autoScroll && log.isNotEmpty()) listState.animateScrollToItem(log.size - 1)
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    var followLatestMessage by rememberSaveable { mutableStateOf(true) }
+
+    LaunchedEffect(listState, autoScroll) {
+        snapshotFlow {
+            val lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisibleItemIndex >= listState.layoutInfo.totalItemsCount - 2
+        }.collect { isNearLatestMessage ->
+            followLatestMessage = isNearLatestMessage
+        }
+    }
+    LaunchedEffect(log.lastOrNull(), autoScroll) {
+        if (autoScroll && followLatestMessage && log.isNotEmpty()) {
+            listState.animateScrollToItem(log.lastIndex)
+        }
     }
     LazyColumn(
         state = listState,
@@ -674,7 +721,13 @@ private fun ChatLog(log: List<ChatEvent>, autoScroll: Boolean, modifier: Modifie
                 color = CHAT_DEFAULT_TEXT,
                 maxLines = 8,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(vertical = 2.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        clipboardManager.setText(AnnotatedString(ev.plainText))
+                        Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
+                    }
+                    .padding(vertical = 2.dp)
             )
         }
     }
@@ -879,6 +932,7 @@ private fun SettingsScreen(vm: MainViewModel) {
     val cdkState by vm.cdkState.collectAsStateWithLifecycle()
     var removingAccountUuid by remember { mutableStateOf<String?>(null) }
     var showSourcePicker by remember { mutableStateOf(false) }
+    var showThemePicker by remember { mutableStateOf(false) }
     var showIconPicker by remember { mutableStateOf(false) }
     val currentAppIcon by vm.currentAppIcon.collectAsStateWithLifecycle()
 
@@ -934,7 +988,7 @@ private fun SettingsScreen(vm: MainViewModel) {
         item {
             ListItem(
                 headlineContent = { Text("自动滚动到最新聊天") },
-                supportingContent = { Text("关闭后，新消息不会打断你查看历史聊天。") },
+                supportingContent = { Text("点击消息可复制；关闭后，新消息不会打断你查看历史聊天。") },
                 trailingContent = {
                     Switch(
                         checked = preferences.chatAutoScroll,
@@ -953,6 +1007,16 @@ private fun SettingsScreen(vm: MainViewModel) {
                         onCheckedChange = vm::setCommandCompletionEnabled
                     )
                 }
+            )
+        }
+
+        item { SectionTitle("外观") }
+        item {
+            ListItem(
+                headlineContent = { Text("明暗主题") },
+                supportingContent = { Text(preferences.themeMode.displayName) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+                modifier = Modifier.clickable { showThemePicker = true }
             )
         }
 
@@ -1020,6 +1084,39 @@ private fun SettingsScreen(vm: MainViewModel) {
                 showSourcePicker = false
             },
             onDismiss = { showSourcePicker = false }
+        )
+    }
+
+    if (showThemePicker) {
+        AlertDialog(
+            onDismissRequest = { showThemePicker = false },
+            title = { Text("明暗主题") },
+            text = {
+                Column {
+                    ThemeMode.entries.forEach { themeMode ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.setThemeMode(themeMode)
+                                    showThemePicker = false
+                                }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = preferences.themeMode == themeMode,
+                                onClick = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(themeMode.displayName)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemePicker = false }) { Text("取消") }
+            }
         )
     }
 
@@ -1195,7 +1292,7 @@ private fun PluginCenterScreen(vm: MainViewModel) {
                 updatedAt = officialMarket.updatedAt,
                 loading = officialMarket.loading,
                 errorMessage = officialMarket.errorMessage,
-                onRefresh = vm::refreshOfficialPluginMarket
+                onRefresh = { vm.refreshOfficialPluginMarket() }
             )
         }
         if (officialMarket.entries.isEmpty() && !officialMarket.loading) {

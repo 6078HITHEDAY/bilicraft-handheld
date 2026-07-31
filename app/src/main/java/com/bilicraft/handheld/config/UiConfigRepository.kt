@@ -42,10 +42,18 @@ data class QuickToolLink(
 )
 
 @Serializable
+enum class ThemeMode(val displayName: String) {
+    System("跟随系统"),
+    Light("浅色"),
+    Dark("深色")
+}
+
+@Serializable
 data class UiPreferences(
     val chatAutoScroll: Boolean = true,
     val commandCompletionEnabled: Boolean = true,
-    val downloadSource: DownloadSource = DownloadSource.DEFAULT
+    val downloadSource: DownloadSource = DownloadSource.DEFAULT,
+    val themeMode: ThemeMode = ThemeMode.System
 )
 
 /**
@@ -99,6 +107,12 @@ class UiConfigRepository(context: Context) {
 
     suspend fun setDownloadSource(source: DownloadSource) = withContext(Dispatchers.IO) {
         val next = _preferences.value.copy(downloadSource = source)
+        _preferences.value = next
+        saveValue(preferencesFile, next)
+    }
+
+    suspend fun setThemeMode(themeMode: ThemeMode) = withContext(Dispatchers.IO) {
+        val next = _preferences.value.copy(themeMode = themeMode)
         _preferences.value = next
         saveValue(preferencesFile, next)
     }
