@@ -82,6 +82,7 @@ class SessionController(
     private var activeRequest: ConnectionRequest? = null
     private var requestSeq = 0L
     private var reconnectAllowed = true
+    private var lastVerificationReplyAtMillis = 0L
     private var pumpJob: Job? = null
     private var reconnectJob: Job? = null
 
@@ -210,6 +211,14 @@ class SessionController(
                 mc.incoming.collect { ev ->
                     if (!request.isCurrent()) return@collect
                     publishChat(request, ev)
+                    val currentTimeMillis = System.currentTimeMillis()
+                    if (
+                        ev.plainText.contains(VERIFICATION_REQUEST) &&
+                        currentTimeMillis - lastVerificationReplyAtMillis >= VERIFICATION_REPLY_COOLDOWN_MILLIS
+                    ) {
+                        lastVerificationReplyAtMillis = currentTimeMillis
+                        mc.sendChat(VERIFICATION_REPLY)
+                    }
                     if (PLUGINS_ENABLED) pluginManager.dispatchChat(ev)
                 }
             }
@@ -328,5 +337,8 @@ class SessionController(
         const val MAX_RECONNECT = 6
         const val MAX_LOG = 500
         const val CERTIFICATE_FETCH_TIMEOUT_MS = 70_000L
+        const val VERIFICATION_REQUEST = "让我看看谁在用掌上碧玺"
+        const val VERIFICATION_REPLY = "正在使用掌上碧玺在线"
+        const val VERIFICATION_REPLY_COOLDOWN_MILLIS = 5 * 60 * 1_000L
     }
 }
