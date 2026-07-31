@@ -7,6 +7,7 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,7 +31,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilicraft.handheld.appicon.AppIconCatalog
 import kotlinx.coroutines.coroutineScope
@@ -61,9 +65,14 @@ fun AppRoot(vm: MainViewModel) {
                 val secondBounceHeight = with(density) { 24.dp.toPx() }
                 val thirdBounceHeight = with(density) { 8.dp.toPx() }
                 val shadowOffset = with(density) { 66.dp.toPx() }
+                val taglineOffset = with(density) { 104.dp.toPx() }
+                val taglineRiseDistance = with(density) { 12.dp.toPx() }
                 val iconOffsetY = remember(dropDistance) { Animatable(-dropDistance) }
                 val iconScale = remember { Animatable(0.78f) }
                 val iconRotation = remember { Animatable(-8f) }
+                val rippleProgress = remember { Animatable(0f) }
+                val taglineAlpha = remember { Animatable(0f) }
+                val taglineOffsetY = remember(taglineRiseDistance) { Animatable(taglineRiseDistance) }
                 val overlayAlpha = remember { Animatable(1f) }
 
                 LaunchedEffect(dropDistance) {
@@ -113,28 +122,53 @@ fun AppRoot(vm: MainViewModel) {
                             )
                         }
                     }
-                    delay(120)
+                    delay(100)
                     coroutineScope {
                         launch {
-                            iconScale.animateTo(
-                                targetValue = 9f,
+                            rippleProgress.animateTo(
+                                targetValue = 1f,
                                 animationSpec = tween(
-                                    durationMillis = 900,
+                                    durationMillis = 1_450,
                                     easing = FastOutSlowInEasing
                                 )
                             )
                         }
                         launch {
-                            delay(480)
-                            overlayAlpha.animateTo(
+                            iconScale.animateTo(
+                                targetValue = 1.04f,
+                                animationSpec = tween(
+                                    durationMillis = 1_050,
+                                    easing = FastOutSlowInEasing
+                                )
+                            )
+                        }
+                        launch {
+                            taglineAlpha.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(
+                                    durationMillis = 520,
+                                    easing = FastOutSlowInEasing
+                                )
+                            )
+                        }
+                        launch {
+                            taglineOffsetY.animateTo(
                                 targetValue = 0f,
                                 animationSpec = tween(
-                                    durationMillis = 420,
-                                    easing = FastOutLinearInEasing
+                                    durationMillis = 620,
+                                    easing = FastOutSlowInEasing
                                 )
                             )
                         }
                     }
+                    delay(180)
+                    overlayAlpha.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(
+                            durationMillis = 520,
+                            easing = FastOutLinearInEasing
+                        )
+                    )
                     showSplash = false
                 }
 
@@ -145,6 +179,28 @@ fun AppRoot(vm: MainViewModel) {
                         .background(MaterialTheme.colorScheme.surface)
                 ) {
                     val distanceFromCenter = (-iconOffsetY.value / dropDistance).coerceIn(0f, 1f)
+                    repeat(3) { rippleIndex ->
+                        val rippleDelay = rippleIndex * 0.16f
+                        val staggeredProgress = (
+                            (rippleProgress.value - rippleDelay) / (1f - rippleDelay)
+                        ).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(132.dp)
+                                .graphicsLayer {
+                                    val rippleScale = 0.82f + staggeredProgress * 1.85f
+                                    scaleX = rippleScale
+                                    scaleY = rippleScale
+                                    alpha = 0.2f * 4f * staggeredProgress * (1f - staggeredProgress)
+                                }
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = CircleShape
+                                )
+                        )
+                    }
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -173,6 +229,18 @@ fun AppRoot(vm: MainViewModel) {
                             }
                             .shadow(18.dp, RoundedCornerShape(26.dp))
                             .clip(RoundedCornerShape(26.dp))
+                    )
+                    Text(
+                        text = "足不出户 · 看遍碧玺事",
+                        style = MaterialTheme.typography.titleMedium.copy(letterSpacing = 1.4.sp),
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .graphicsLayer {
+                                translationY = taglineOffset + taglineOffsetY.value
+                                alpha = taglineAlpha.value
+                            }
                     )
                 }
             }
