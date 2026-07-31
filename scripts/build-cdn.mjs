@@ -40,6 +40,12 @@ const apkCdnPath = `/app/releases/${tag}/${apkAsset.name}`;
 const apkCdnUrl = `${cdnRoot}/app/releases/${encodeURIComponent(tag)}/${encodeURIComponent(apkAsset.name)}`;
 
 await writeBinary(apkCdnPath, apkBytes);
+
+// Stable public URL that always redirects to the APK from the latest release.
+await writeText(
+  "/_redirects",
+  `/download/latest ${apkCdnPath} 302\n`
+);
 await writeJson(`/app/releases/${tag}/manifest.json`, {
   schemaVersion: 1,
   tag,
