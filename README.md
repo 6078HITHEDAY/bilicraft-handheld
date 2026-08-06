@@ -13,7 +13,7 @@
 - **插件系统**：支持本体自定义 `.bhplugin` 外部插件包，插件通过 `plugin-api` 注册 App 内页面入口并访问稳定宿主能力；底部导航提供独立“插件管理”页用于导入、启停、卸载和官方源安装/更新，服务器会话页提供悬浮“插件入口”按钮用于进入具体插件页面。旧 JS 沙箱插件仍作为内置脚本插件保留。
 - **CDK 定时展示**：设置页内置 CDK 模块，App 只读取官方 CDN 的 `cdk/index.json`；维护者更新该文件即可按 `startsAt` / `endsAt` 控制指定时间段内展示的兑换码。
 - **强制签名可选**：主控页可切换「强制签名」；开启后取 Mojang 玩家证书并对聊天做真实签名，适配强制安全档案的正版服务器；私钥只在内存中使用，不落盘。
-- **锁屏不断线**：前台 Service（dataSync）+ PARTIAL_WAKE_LOCK + 指数退避断线重连。
+- **锁屏不断线**：前台 Service（dataSync）+ PARTIAL_WAKE_LOCK + 连接参数落盘续跑 + 网络恢复立刻重连 + 设置页「忽略电池优化」引导与厂商后台限制说明；可选「低能耗挂后台」在退到后台/息屏时释放唤醒锁并降低通知刷新频率。
 
 ---
 
@@ -47,7 +47,7 @@ plugin     旧 Rhino JS 沙箱，作为内置脚本插件保留
    ▲
 session    SessionController：纯 Kotlin 业务核心，编排连接/重连/插件分发（可单测）
    ▲
-service    ConnectionService：Android 容器，前台通知 + WakeLock，只托管 SessionController
+service    ConnectionService：Android 容器，前台通知 + WakeLock + 省电策略 + 连接续跑，只托管 SessionController
    ▲
 ui         Compose：登录页 / 主控页（版本下拉+服务器+聊天），MainViewModel 聚合
 ```
@@ -60,7 +60,7 @@ ui         Compose：登录页 / 主控页（版本下拉+服务器+聊天），
 
 ### 前置要求
 - Android Studio（Ladybug / 2024.2 或更新）
-- JDK 17+
+- JDK 17 或 21（Gradle 守护进程只认项目内 `.jdk`，不跟系统默认 `JAVA_HOME`）
 - Android SDK（API 34），首次打开 Android Studio 会自动下载
 
 ### 步骤
@@ -71,6 +71,8 @@ ui         Compose：登录页 / 主控页（版本下拉+服务器+聊天），
 命令行方式（需已安装 Android SDK 并配置 `local.properties`）：
 
 ```bash
+# 首次：把本机 JDK 17/21 软链到项目根目录（路径按本机实际安装改）
+ln -sfn ~/.minecraftx/jre/java-runtime-delta .jdk
 # 首次：用本机 gradle 生成 wrapper（若无 wrapper jar）
 gradle wrapper --gradle-version 8.9
 # 构建 + 安装

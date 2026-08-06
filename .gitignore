@@ -2,6 +2,8 @@
 .gradle/
 build/
 !gradle/wrapper/gradle-wrapper.jar
+# 本机 JDK 软链（gradle.properties 里 org.gradle.java.home=.jdk）
+.jdk
 
 # Android
 *.apk
