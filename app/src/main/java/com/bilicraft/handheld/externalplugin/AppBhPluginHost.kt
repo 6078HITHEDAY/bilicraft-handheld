@@ -3,6 +3,7 @@ package com.bilicraft.handheld.externalplugin
 import android.content.Context
 import com.bilicraft.handheld.pluginapi.BhChatEvent
 import com.bilicraft.handheld.pluginapi.BhConnectionState
+import com.bilicraft.handheld.pluginapi.BhPlayer
 import com.bilicraft.handheld.pluginapi.BhPluginHost
 import com.bilicraft.handheld.protocol.ConnectionState
 import com.bilicraft.handheld.session.SessionController
@@ -66,6 +67,9 @@ class AppBhPluginHost(
         session.sendChat(text)
         return true
     }
+
+    override val currentPlayer: BhPlayer?
+        get() = session.currentSession?.let { BhPlayer(name = it.mcUsername, uuid = it.mcUuid) }
 
     override fun log(message: String) {
         session.appendPluginLog(pluginId, message)

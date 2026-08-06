@@ -12,6 +12,7 @@ import com.bilicraft.handheld.protocol.MinecraftClient
 import com.bilicraft.handheld.protocol.PaletteRegistry
 import com.bilicraft.handheld.protocol.ServerAddress
 import com.bilicraft.handheld.protocol.ServerPinger
+import com.bilicraft.handheld.storage.AuthSession
 import com.bilicraft.handheld.version.McVersion
 import com.bilicraft.handheld.version.VersionRepository
 import kotlinx.coroutines.CoroutineScope
@@ -70,6 +71,9 @@ class SessionController(
 
     private val _events = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 256)
     val events: SharedFlow<SessionEvent> = _events.asSharedFlow()
+
+    /** 当前登录玩家（活跃账户）；未登录为 null */
+    val currentSession: AuthSession? get() = authManager.currentSession()
 
     // 插件宿主：把插件的 sendChat 接到当前 client
     private val pluginHost = object : PluginHost {
