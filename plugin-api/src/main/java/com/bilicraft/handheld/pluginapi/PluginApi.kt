@@ -54,6 +54,9 @@ interface BhPluginHost {
     val connectionState: StateFlow<BhConnectionState>
     val chatEvents: Flow<BhChatEvent>
 
+    /** 当前登录玩家（名字 + UUID）；未登录时为 null */
+    val currentPlayer: BhPlayer? get() = null
+
     fun sendChat(text: String): Boolean
     fun log(message: String)
     suspend fun httpGet(url: String): String
@@ -64,6 +67,12 @@ data class BhChatEvent(
     val rawJson: String,
     val sender: String?,
     val timestamp: Long
+)
+
+/** 当前登录玩家信息。uuid 为无符号字符串（如 069a79f4-44e9-4726-a5be-fca90e38aaf5）。 */
+data class BhPlayer(
+    val name: String,   // 玩家名字
+    val uuid: String    // 玩家 UUID
 )
 
 enum class BhConnectionState {

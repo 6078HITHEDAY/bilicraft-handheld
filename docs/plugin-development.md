@@ -232,6 +232,7 @@ interface BhPluginHost {
     val pluginDataDir: File
     val connectionState: StateFlow<BhConnectionState>
     val chatEvents: Flow<BhChatEvent>
+    val currentPlayer: BhPlayer?
 
     fun sendChat(text: String): Boolean
     fun log(message: String)
@@ -247,9 +248,21 @@ interface BhPluginHost {
 | `pluginDataDir` | 插件私有数据目录，按插件 ID 隔离。 |
 | `connectionState` | 当前连接状态。 |
 | `chatEvents` | 宿主归一化后的聊天事件流。 |
+| `currentPlayer` | 当前登录玩家（名字 + UUID），未登录时为 `null`。 |
 | `sendChat(text)` | 发送聊天或命令文本。返回 `false` 表示当前不能发送。 |
 | `log(message)` | 输出插件日志到宿主日志管道。 |
 | `httpGet(url)` | 由宿主代理的简单 GET 请求。 |
+
+### `BhPlayer`
+
+```kotlin
+data class BhPlayer(
+    val name: String,   // 玩家名字
+    val uuid: String    // 玩家 UUID（无符号字符串）
+)
+```
+
+当前登录玩家信息。`currentPlayer.name` 是玩家名字，`currentPlayer.uuid` 是玩家 UUID；未登录时 `currentPlayer` 为 `null`，使用前应判空。
 
 ### `BhChatEvent`
 
