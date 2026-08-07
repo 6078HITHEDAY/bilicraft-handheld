@@ -18,7 +18,7 @@ data class ConnectionHandoff(
  * 进程被系统回收后的连接续跑凭据。
  *
  * START_STICKY 重建 Service 时 intent 恒为 null，没有这份快照就只会起一个空转的前台服务。
- * 用户主动断开时清空，避免「手动停止后又被系统重启自动连回去」。
+ * 用户主动断开或不可重试失败时清空，避免「停止/终态失败后又被系统重启自动连回去」。
  *
  * 用 SharedPreferences 而非 SecureStore：这里只有服务器地址和版本，没有任何凭证。
  */
