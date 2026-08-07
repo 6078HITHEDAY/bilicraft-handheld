@@ -111,7 +111,8 @@ class SessionController(
 
     /**
      * 立刻重连当前目标（网络恢复等外部信号触发）。
-     * 重新发起请求而不是复用退避链：退避次数归零，也顺带解除 MAX_RECONNECT 之后的停止状态。
+     * 重新发起请求而不是复用退避链：退避次数归零。
+     * 若已因不可重试失败或达到上限而放弃目标，则无操作。
      */
     fun retryNow() {
         val request = activeRequest ?: return
@@ -190,7 +191,8 @@ class SessionController(
         val session = authManager.currentSession()
         if (!request.isCurrent()) return
         if (session == null) {
-            publishState(request, ConnectionState.Failed("未登录"))
+            publishState(request, ConnectionState.Failed("未登录", retriable = false))
+            abandonRequest(request)
             return
         }
 
@@ -284,6 +286,8 @@ class SessionController(
                 else {
                     reconnectAllowed = false
                     reconnectJob?.cancel()
+                    // 不可重试：清掉目标，避免网络回调/进程重建继续拉起连接
+                    abandonRequest(request)
                 }
             }
             is ConnectionState.Disconnected -> {
@@ -298,8 +302,12 @@ class SessionController(
         if (!request.isCurrent() || !reconnectAllowed || reconnectJob?.isActive == true) return
         val attempt = prevAttempt + 1
         if (attempt > MAX_RECONNECT) {
+            val serverId = request.serverId
             publishSystem(request, "已达最大重连次数（$MAX_RECONNECT），停止重连")
             reconnectAllowed = false
+            abandonRequest(request)
+            // 终态标成不可重试，便于 Service 清掉 handoff，阻止进程死后自动重连
+            publishState(serverId, ConnectionState.Failed("已达最大重连次数", retriable = false))
             return
         }
         val backoff = minOf(30_000L, 1000L * (1L shl attempt))  // 2s,4s,8s… 上限30s
@@ -343,6 +351,12 @@ class SessionController(
     }
 
     private fun ConnectionRequest.isCurrent(): Boolean = activeRequest?.seq == seq
+
+    /** 放弃当前连接目标；仅当仍是最新请求时清空，避免误伤后来的新连接。 */
+    private fun abandonRequest(request: ConnectionRequest) {
+        if (!request.isCurrent()) return
+        activeRequest = null
+    }
 
     private data class ConnectionRequest(
         val seq: Long,

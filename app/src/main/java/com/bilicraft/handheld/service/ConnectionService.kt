@@ -177,6 +177,10 @@ class ConnectionService : Service() {
                     is ConnectionState.Failed -> "连接失败"
                     is ConnectionState.Disconnected -> "已断开"
                 }
+                // 不可重试失败：清掉落盘快照，避免 START_STICKY 进程重建后自动连回去
+                if (state is ConnectionState.Failed && !state.retriable) {
+                    handoffStore.clear()
+                }
                 // 重连中状态变化频繁，省电时用节流避免每次都唤醒通知栏；
                 // 连接成功/失败这类终态一定要立刻可见，不进节流。
                 val throttle = lowPowerActive && state is ConnectionState.Reconnecting
