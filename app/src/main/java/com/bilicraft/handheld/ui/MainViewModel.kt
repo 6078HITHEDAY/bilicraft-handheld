@@ -14,6 +14,7 @@ import com.bilicraft.handheld.appicon.AppIcon
 import com.bilicraft.handheld.appicon.AppIconCatalog
 import com.bilicraft.handheld.auth.AccountSummary
 import com.bilicraft.handheld.auth.AuthState
+import com.bilicraft.handheld.config.PluginPanelLayout
 import com.bilicraft.handheld.config.QuickToolLink
 import com.bilicraft.handheld.config.ServerConfig
 import com.bilicraft.handheld.config.ThemeMode
@@ -537,6 +538,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setThemeMode(themeMode: ThemeMode) {
         viewModelScope.launch {
             uiConfigRepo.setThemeMode(themeMode)
+        }
+    }
+
+    fun setPluginPanelLayout(layout: PluginPanelLayout) {
+        viewModelScope.launch {
+            uiConfigRepo.setPluginPanelLayout(layout)
         }
     }
 
