@@ -421,6 +421,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun prepareFullExit() {
+        stopConnection()
+    }
+
     fun sendChat(serverId: String, text: String) {
         if (text.isBlank() || _serverRuntime.value.activeServerId != serverId) return
         _commandSuggestions.value = CommandSuggestions.Empty

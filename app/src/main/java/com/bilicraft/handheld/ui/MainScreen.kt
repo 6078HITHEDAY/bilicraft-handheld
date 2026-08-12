@@ -1,5 +1,6 @@
 package com.bilicraft.handheld.ui
 
+import android.app.Activity
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -147,6 +149,7 @@ import com.bilicraft.handheld.update.DownloadSource
 import com.bilicraft.handheld.update.ReleaseInfo
 import com.bilicraft.handheld.update.UpdateState
 import java.io.File
+import kotlin.system.exitProcess
 import com.bilicraft.handheld.version.McVersion
 import com.bilicraft.handheld.version.VersionRepository
 
@@ -279,9 +282,11 @@ private fun ServerSessionsScreen(vm: MainViewModel) {
     val pluginEntrypoints by vm.externalPluginEntrypoints.collectAsStateWithLifecycle()
     val serverSessionStateHolder = rememberSaveableStateHolder()
 
+    val context = LocalContext.current
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     var editingServer by remember { mutableStateOf<ServerConfig?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showExitConfirm by remember { mutableStateOf(false) }
     var menuServer by remember { mutableStateOf<ServerConfig?>(null) }
     var pluginMenuExpanded by rememberSaveable { mutableStateOf(false) }
 
@@ -334,6 +339,9 @@ private fun ServerSessionsScreen(vm: MainViewModel) {
                         enabled = currentConnected
                     ) {
                         Icon(Icons.Default.Favorite, contentDescription = "复活")
+                    }
+                    IconButton(onClick = { showExitConfirm = true }) {
+                        Icon(Icons.Default.PowerSettingsNew, contentDescription = "退出应用")
                     }
                     IconButton(onClick = { showCreateDialog = true }) {
                         Icon(Icons.Default.Add, contentDescription = "新增服务器")
@@ -397,6 +405,31 @@ private fun ServerSessionsScreen(vm: MainViewModel) {
             onSave = { name, host, port, version, signing ->
                 vm.createServer(name, host, port, version, signing)
                 showCreateDialog = false
+            }
+        )
+    }
+
+    if (showExitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("退出应用") },
+            text = { Text("将断开连接并完全退出，不会保留后台。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showExitConfirm = false
+                        vm.prepareFullExit()
+                        (context as? Activity)?.finishAndRemoveTask()
+                        exitProcess(0)
+                    }
+                ) {
+                    Text("退出")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirm = false }) {
+                    Text("取消")
+                }
             }
         )
     }
