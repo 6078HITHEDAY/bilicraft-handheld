@@ -39,7 +39,8 @@ class ConnectionHandoffStore(context: Context) {
     }
 
     fun clear() {
-        prefs.edit().clear().apply()
+        // commit：完全退出会立刻 exitProcess，apply 可能来不及落盘，sticky 会带着旧凭据重启。
+        prefs.edit().clear().commit()
     }
 
     fun load(): ConnectionHandoff? {

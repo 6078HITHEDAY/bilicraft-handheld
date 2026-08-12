@@ -910,18 +910,29 @@ private fun ChatLog(log: List<ChatEvent>, autoScroll: Boolean, modifier: Modifie
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     var followLatestMessage by rememberSaveable { mutableStateOf(true) }
+    // 自动滚到底期间 layout 会短暂「不在底部」，忽略这段对 follow 的误写。
+    var autoScrolling by remember { mutableStateOf(false) }
 
-    LaunchedEffect(listState, autoScroll) {
+    LaunchedEffect(listState) {
         snapshotFlow {
             val lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             lastVisibleItemIndex >= listState.layoutInfo.totalItemsCount - 2
         }.collect { isNearLatestMessage ->
-            followLatestMessage = isNearLatestMessage
+            if (!autoScrolling) {
+                followLatestMessage = isNearLatestMessage
+            }
         }
     }
-    LaunchedEffect(log.lastOrNull(), autoScroll) {
+    // 用 size + 末条时间戳：同文案连刷时 lastOrNull() equals 不变，滚动不会触发。
+    LaunchedEffect(log.size, log.lastOrNull()?.timestamp, autoScroll) {
         if (autoScroll && followLatestMessage && log.isNotEmpty()) {
-            listState.animateScrollToItem(log.lastIndex)
+            autoScrolling = true
+            try {
+                listState.scrollToItem(log.lastIndex)
+            } finally {
+                autoScrolling = false
+                followLatestMessage = true
+            }
         }
     }
     LazyColumn(
@@ -934,7 +945,10 @@ private fun ChatLog(log: List<ChatEvent>, autoScroll: Boolean, modifier: Modifie
         if (log.isEmpty()) {
             item { Text("聊天记录为空", color = CHAT_DEFAULT_TEXT, style = MaterialTheme.typography.bodyMedium) }
         }
-        items(log) { ev ->
+        items(
+            items = log,
+            key = { ev -> "${ev.timestamp}|${ev.sender}|${ev.plainText}|${System.identityHashCode(ev)}" }
+        ) { ev ->
             Text(
                 text = ev.toAnnotated(),
                 style = MaterialTheme.typography.bodyMedium,

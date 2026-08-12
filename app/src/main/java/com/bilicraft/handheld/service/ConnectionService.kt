@@ -137,10 +137,15 @@ class ConnectionService : Service() {
             ACTION_STOP -> {
                 handoffStore.clear()
                 AppContainer.session.stop()
+                removeConnectionNotification()
                 stopSelf()
+                // 主动停止后不要 sticky 重建，否则进程未死透时通知/服务会被拉回。
+                return START_NOT_STICKY
             }
             // intent 为 null = START_STICKY 重建。用落盘快照自己接上，否则只会空转。
-            null -> restoreFromHandoff()
+            null -> {
+                if (!restoreFromHandoff()) return START_NOT_STICKY
+            }
         }
         // 被系统杀掉后尝试重建（配合 ConnectionHandoffStore 恢复连接参数）
         return START_STICKY
@@ -155,14 +160,17 @@ class ConnectionService : Service() {
         )
     }
 
-    private fun restoreFromHandoff() {
-        if (AppContainer.session.hasActiveRequest) return
+    /** @return false 表示无凭据、已请求停止，调用方应返回 START_NOT_STICKY。 */
+    private fun restoreFromHandoff(): Boolean {
+        if (AppContainer.session.hasActiveRequest) return true
         val handoff = handoffStore.load()
         if (handoff == null) {
+            removeConnectionNotification()
             stopSelf()
-            return
+            return false
         }
         connect(handoff)
+        return true
     }
 
     private fun observeState() {
@@ -287,7 +295,19 @@ class ConnectionService : Service() {
         logJob?.cancel()
         powerPolicyJob?.cancel()
         serviceScope.cancel()
+        removeConnectionNotification()
         super.onDestroy()
+    }
+
+    /** 撤掉前台身份并清除通知，避免进程退出后 ongoing 通知残留。 */
+    private fun removeConnectionNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+        getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -359,10 +379,17 @@ class ConnectionService : Service() {
         const val EXTRA_SIGNING = "signing"
 
         private const val CHANNEL_ID = "connection"
-        private const val NOTIF_ID = 1001
+        const val NOTIF_ID = 1001
         private const val LOG_TAG = "BilicraftMC"
         private const val WAKE_LOCK_TAG = "bilicraft:connection"
         private const val LOW_POWER_NOTIFY_INTERVAL_MS = 30_000L
+
+        /** UI / 完全退出路径在杀进程前同步清掉连接通知。 */
+        fun cancelConnectionNotification(context: Context) {
+            context.applicationContext
+                .getSystemService(NotificationManager::class.java)
+                ?.cancel(NOTIF_ID)
+        }
 
         /** 构造启动 Intent（UI 侧调用） */
         fun startIntent(

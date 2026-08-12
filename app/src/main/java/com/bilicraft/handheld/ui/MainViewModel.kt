@@ -422,7 +422,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun prepareFullExit() {
-        stopConnection()
+        val ctx = getApplication<Application>()
+        // 同步清续跑凭据与会话；用 stopService 而非 startService(STOP)，
+        // 避免杀进程前又走一遍 onCreate→startForeground 把通知拉回来。
+        AppContainer.connectionHandoffStore.clear()
+        AppContainer.session.stop()
+        ctx.stopService(Intent(ctx, ConnectionService::class.java))
+        ConnectionService.cancelConnectionNotification(ctx)
+        _commandSuggestions.value = CommandSuggestions.Empty
+        val activeId = _serverRuntime.value.activeServerId
+        _serverRuntime.update { current ->
+            if (activeId == null) current else current.copy(
+                activeServerId = null,
+                connectionStates = current.connectionStates + (activeId to ConnectionState.Disconnected)
+            )
+        }
     }
 
     fun sendChat(serverId: String, text: String) {
