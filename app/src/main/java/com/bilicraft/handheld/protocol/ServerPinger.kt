@@ -28,7 +28,10 @@ class ServerPinger {
     data class Status(
         val protocol: Int,
         val versionName: String,
-        val description: String
+        val description: String,
+        val favicon: String? = null,
+        val onlinePlayers: Int = -1,
+        val maxPlayers: Int = -1
     )
 
     suspend fun ping(address: ServerAddress): Result<Status> =
@@ -84,13 +87,18 @@ class ServerPinger {
                 val packetId = buf.readVarInt()
                 if (packetId == 0x00 && !done) {
                     done = true
-                    val json = buf.readString()
+                    // favicon 的 data URI 经常把整段 JSON 顶到 32KiB 以上，这里单独放宽。
+                    val json = buf.readString(STATUS_JSON_MAX_LEN)
                     val root = JSONObject(json)
                     val ver = root.optJSONObject("version")
+                    val players = root.optJSONObject("players")
                     val status = Status(
                         protocol = ver?.optInt("protocol", -1) ?: -1,
                         versionName = ver?.optString("name", "?") ?: "?",
-                        description = root.opt("description")?.toString() ?: ""
+                        description = root.opt("description")?.toString() ?: "",
+                        favicon = root.optString("favicon", "").takeIf { it.isNotBlank() },
+                        onlinePlayers = players?.optInt("online", -1) ?: -1,
+                        maxPlayers = players?.optInt("max", -1) ?: -1
                     )
                     finish(Result.success(status))
                     ctx.close()
@@ -114,5 +122,9 @@ class ServerPinger {
             cleanup()
             runCatching { cont.resume(result) }
         }
+    }
+
+    private companion object {
+        const val STATUS_JSON_MAX_LEN = 262_144
     }
 }

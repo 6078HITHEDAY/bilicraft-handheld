@@ -26,3 +26,4 @@ keystore.b64.txt
 
 # Kotlin
 *.hprof
+.local-signing/
