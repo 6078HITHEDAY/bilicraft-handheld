@@ -239,5 +239,8 @@ dependencies {
     // 插件沙箱：Rhino（嵌入式 JS 引擎，纯 JVM，Android 可用）
     implementation("org.mozilla:rhino:1.7.15")
 
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

@@ -7,24 +7,21 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
+import android.content.Intent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bilicraft.handheld.AppContainer
-import com.bilicraft.handheld.config.ThemeMode
+import com.bilicraft.handheld.notify.ChatNotificationManager
+import com.bilicraft.handheld.ui.theme.BilicraftTheme
 
 /**
  * 唯一入口 Activity：初始化依赖容器、申请通知权限、承载 Compose UI。
- * 纯 UI 美化：这里定义 Material 3 品牌色；业务状态仍来自 AppContainer 中的既有模块。
+ * 品牌配色由 BilicraftTheme 统一提供。
  */
 class MainActivity : ComponentActivity() {
 
@@ -35,21 +32,30 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppContainer.init(applicationContext)
         requestNotificationPermissionIfNeeded()
+        offerChatOpen(intent)
 
         setContent {
             val vm: MainViewModel = viewModel()
             val preferences by vm.preferences.collectAsStateWithLifecycle()
-            val dark = when (preferences.themeMode) {
-                ThemeMode.System -> isSystemInDarkTheme()
-                ThemeMode.Light -> false
-                ThemeMode.Dark -> true
-            }
-            MaterialTheme(colorScheme = if (dark) BilicraftDarkColors else BilicraftLightColors) {
+            BilicraftTheme(themeMode = preferences.themeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     AppRoot(vm)
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        offerChatOpen(intent)
+    }
+
+    private fun offerChatOpen(intent: Intent?) {
+        AppContainer.offerChatOpen(
+            intent?.getStringExtra(ChatNotificationManager.EXTRA_SERVER_ID),
+            intent?.getStringExtra(ChatNotificationManager.EXTRA_CONVERSATION_ID)
+        )
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -61,19 +67,3 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
-private val BilicraftLightColors = lightColorScheme(
-    primary = Color(0xFF1B6EF3),
-    secondary = Color(0xFF006B5F),
-    tertiary = Color(0xFF7A5C00),
-    surface = Color(0xFFFFFBFF),
-    surfaceVariant = Color(0xFFE7EFFD)
-)
-
-private val BilicraftDarkColors = darkColorScheme(
-    primary = Color(0xFF9CC2FF),
-    secondary = Color(0xFF72D8C8),
-    tertiary = Color(0xFFE8C45C),
-    surface = Color(0xFF101318),
-    surfaceVariant = Color(0xFF263142)
-)

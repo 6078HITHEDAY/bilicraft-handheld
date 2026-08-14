@@ -59,6 +59,8 @@ enum class PacketKey(val phase: PacketPhase) {
     CB_DECLARE_COMMANDS(PacketPhase.PLAY),              // 服务器声明 Brigadier 命令树
     CB_SYSTEM_CHAT(PacketPhase.PLAY),                   // 系统消息（服务器广播、命令回显等，多数聊天走这里）
     CB_PLAYER_CHAT(PacketPhase.PLAY),                   // 玩家签名聊天（结构复杂，这里只提取可读文本）
+    CB_PLAYER_INFO_UPDATE(PacketPhase.PLAY),            // 在线玩家列表增量（只解析 ADD_PLAYER 拿 name+uuid）
+    CB_PLAYER_INFO_REMOVE(PacketPhase.PLAY),            // 从 tab 列表移除玩家
     CB_START_CONFIGURATION(PacketPhase.PLAY),           // 1.20.2+ 代理服切换子服时要求回到 configuration
     CB_RESPAWN(PacketPhase.PLAY),                       // 重生/换维度：恢复玩家存活状态
     CB_UPDATE_HEALTH(PacketPhase.PLAY),                 // 生命值更新：health<=0 时禁止发送聊天，避免签名链 index 失步
@@ -153,6 +155,8 @@ object PaletteRegistry {
                 ) else emptyArray()),
                 PacketKey.CB_SYSTEM_CHAT to play.cbSystemChat,
                 PacketKey.CB_PLAYER_CHAT to play.cbPlayerChat,
+                *(play.cbPlayerInfoRemove?.let { arrayOf(PacketKey.CB_PLAYER_INFO_REMOVE to it) } ?: emptyArray()),
+                *(play.cbPlayerInfoUpdate?.let { arrayOf(PacketKey.CB_PLAYER_INFO_UPDATE to it) } ?: emptyArray()),
                 PacketKey.CB_START_CONFIGURATION to play.cbStartConfiguration,
                 PacketKey.CB_RESPAWN to play.cbRespawn,
                 PacketKey.CB_UPDATE_HEALTH to play.cbUpdateHealth,
@@ -183,6 +187,9 @@ object PaletteRegistry {
         val cbStartConfiguration: Int,
         val cbRespawn: Int,
         val cbUpdateHealth: Int,
+        /** 仅已核对协议段登记；未核对则不注册，在线玩家列表降级为 /msg 补全探针。 */
+        val cbPlayerInfoRemove: Int? = null,
+        val cbPlayerInfoUpdate: Int? = null,
     )
 
     private fun modernPlayChatIds(protocol: Int): PlayChatIds = when {
@@ -205,6 +212,8 @@ object PaletteRegistry {
             cbStartConfiguration = 0x76,
             cbRespawn = 0x52,            // 26.1/26.2（MCC Palette261 权威）
             cbUpdateHealth = 0x68,       // 26.1/26.2（MCC Palette261 权威）
+            cbPlayerInfoRemove = 0x45,   // Player Chat 0x41 + 4
+            cbPlayerInfoUpdate = 0x46,   // Player Chat 0x41 + 5
         )
         // 773–774：1.21.9 / 1.21.10 / 1.21.11（MCC Palette1219）
         protocol >= 773 -> PlayChatIds(
@@ -225,6 +234,8 @@ object PaletteRegistry {
             cbStartConfiguration = 0x74,
             cbRespawn = 0x50,            // 1.21.9–1.21.11（minecraft-data 核实）
             cbUpdateHealth = 0x66,       // 1.21.9–1.21.11（minecraft-data 核实）
+            cbPlayerInfoRemove = 0x43,   // 主服 1.21.11：Player Chat 0x3F + 4
+            cbPlayerInfoUpdate = 0x44,   // 主服 1.21.11：Player Chat 0x3F + 5
         )
         // 771–772：1.21.6 / 1.21.7 / 1.21.8（MCC Palette1216）
         protocol >= 771 -> PlayChatIds(
@@ -307,6 +318,8 @@ object PaletteRegistry {
             cbStartConfiguration = 0x69,
             cbRespawn = 0x47,            // 1.21/1.21.1（minecraft-data 核实）
             cbUpdateHealth = 0x5D,       // 1.21/1.21.1（minecraft-data 核实）
+            cbPlayerInfoRemove = if (protocol == 767) 0x3D else null,
+            cbPlayerInfoUpdate = if (protocol == 767) 0x3E else null,
         )
     }
 

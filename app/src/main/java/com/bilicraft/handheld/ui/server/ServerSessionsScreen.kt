@@ -389,7 +389,7 @@ private fun ServerSessionPage(
  * 版本号与「强制签名」降级为副标题里的小字，需要修改时进编辑弹窗，不再占主视觉。
  */
 @Composable
-private fun ServerInfoBar(
+internal fun ServerInfoBar(
     server: ServerConfig,
     conn: ConnectionState,
     connected: Boolean,
@@ -557,7 +557,7 @@ private fun ChatLog(log: List<ChatEvent>, autoScroll: Boolean, modifier: Modifie
 }
 
 @Composable
-private fun ServerEditorDialog(
+internal fun ServerEditorDialog(
     title: String,
     initial: ServerConfig?,
     versions: VersionRepository.Grouped,

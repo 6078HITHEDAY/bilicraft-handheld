@@ -11,6 +11,7 @@ import com.bilicraft.handheld.protocol.ConnectionState
 import com.bilicraft.handheld.protocol.MinecraftClient
 import com.bilicraft.handheld.protocol.PaletteRegistry
 import com.bilicraft.handheld.protocol.ServerAddress
+import com.bilicraft.handheld.protocol.OnlinePlayer
 import com.bilicraft.handheld.protocol.ServerPinger
 import com.bilicraft.handheld.storage.AuthSession
 import com.bilicraft.handheld.version.McVersion
@@ -43,6 +44,11 @@ sealed interface SessionEvent {
         override val serverId: String?,
         val event: ChatEvent
     ) : SessionEvent
+
+    data class Ping(
+        override val serverId: String?,
+        val status: com.bilicraft.handheld.protocol.ServerPinger.Status
+    ) : SessionEvent
 }
 
 /**
@@ -68,6 +74,9 @@ class SessionController(
 
     private val _commandSuggestions = MutableStateFlow(CommandSuggestions.Empty)
     val commandSuggestions: StateFlow<CommandSuggestionState> = _commandSuggestions.asStateFlow()
+
+    private val _onlinePlayers = MutableStateFlow<Map<String, OnlinePlayer>>(emptyMap())
+    val onlinePlayers: StateFlow<Map<String, OnlinePlayer>> = _onlinePlayers.asStateFlow()
 
     private val _events = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 256)
     val events: SharedFlow<SessionEvent> = _events.asSharedFlow()
@@ -104,6 +113,10 @@ class SessionController(
     val hasActiveRequest: Boolean
         get() = activeRequest != null
 
+    /** 当前连接归属的服务器配置 id；未连接时为 null。 */
+    val activeServerId: String?
+        get() = activeRequest?.serverId
+
     /** 启动连接。version 为「自动识别」时先 ping 拿协议号。 */
     fun start(serverId: String?, address: ServerAddress, version: McVersion, mode: ChatSigningMode) {
         launchRequest(serverId, address, version, mode)
@@ -132,6 +145,7 @@ class SessionController(
         val previousClient = client
         client = null
         _commandSuggestions.value = CommandSuggestions.Empty
+        _onlinePlayers.value = emptyMap()
         val request = ConnectionRequest(++requestSeq, serverId, address, version, mode)
         activeRequest = request
         publishState(request, ConnectionState.Connecting)
@@ -150,6 +164,7 @@ class SessionController(
         val previousClient = client
         client = null
         _commandSuggestions.value = CommandSuggestions.Empty
+        _onlinePlayers.value = emptyMap()
         previousClient?.disconnect()
         publishState(stoppedServerId, ConnectionState.Disconnected)
     }
@@ -257,6 +272,12 @@ class SessionController(
                     _commandSuggestions.value = suggestions
                 }
             }
+            launch {
+                mc.onlinePlayers.collect { players ->
+                    if (!request.isCurrent()) return@collect
+                    _onlinePlayers.value = players
+                }
+            }
         }
         mc.connect(addr)
     }
@@ -268,6 +289,7 @@ class SessionController(
         publishSystem(request, "正在自动识别服务器版本…")
         val status = ServerPinger().ping(addr).getOrNull()
         if (!request.isCurrent()) return null
+        if (status != null) _events.tryEmit(SessionEvent.Ping(request.serverId, status))
         return status?.protocol?.takeIf { it > 0 }?.also {
             publishSystem(request, "识别到服务器版本：${status.versionName}（协议 $it）")
         }

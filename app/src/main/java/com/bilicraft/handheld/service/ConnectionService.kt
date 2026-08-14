@@ -176,23 +176,29 @@ class ConnectionService : Service() {
     private fun observeState() {
         stateJob?.cancel()
         stateJob = serviceScope.launch {
-            AppContainer.session.connState.collect { state ->
-                latestStateText = when (state) {
-                    is ConnectionState.Connected -> "已连接"
-                    is ConnectionState.Connecting -> "连接中…"
-                    is ConnectionState.LoggingIn -> "登录中…"
-                    is ConnectionState.Reconnecting -> "重连中（第 ${state.attempt} 次）"
-                    is ConnectionState.Failed -> "连接失败"
-                    is ConnectionState.Disconnected -> "已断开"
+            launch {
+                AppContainer.session.connState.collect { state ->
+                    latestStateText = when (state) {
+                        is ConnectionState.Connected -> "已连接"
+                        is ConnectionState.Connecting -> "连接中…"
+                        is ConnectionState.LoggingIn -> "登录中…"
+                        is ConnectionState.Reconnecting -> "重连中（第 ${state.attempt} 次）"
+                        is ConnectionState.Failed -> "连接失败"
+                        is ConnectionState.Disconnected -> "已断开"
+                    }
+                    if (state is ConnectionState.Failed && !state.retriable) {
+                        handoffStore.clear()
+                    }
+                    val throttle = lowPowerActive && state is ConnectionState.Reconnecting
+                    pushNotification(throttle)
                 }
-                // 不可重试失败：清掉落盘快照，避免 START_STICKY 进程重建后自动连回去
-                if (state is ConnectionState.Failed && !state.retriable) {
-                    handoffStore.clear()
+            }
+            launch {
+                AppContainer.chatCoordinator.lastPreview.collect {
+                    if (AppContainer.session.connState.value is ConnectionState.Connected) {
+                        pushNotification(throttle = lowPowerActive)
+                    }
                 }
-                // 重连中状态变化频繁，省电时用节流避免每次都唤醒通知栏；
-                // 连接成功/失败这类终态一定要立刻可见，不进节流。
-                val throttle = lowPowerActive && state is ConnectionState.Reconnecting
-                pushNotification(throttle)
             }
         }
     }
@@ -357,7 +363,11 @@ class ConnectionService : Service() {
      * 免得重连退避把通知栏刷成高频唤醒源。
      */
     private fun pushNotification(throttle: Boolean) {
-        val text = latestStateText.ifEmpty { return }
+        val preview = AppContainer.chatCoordinator.lastPreview.value
+        val text = if (
+            !preview.isNullOrBlank() &&
+            AppContainer.session.connState.value is ConnectionState.Connected
+        ) preview else latestStateText.ifEmpty { return }
         val now = SystemClock.elapsedRealtime()
         if (text == lastNotifiedText && lowPowerActive == lastNotifiedLowPower) return
         if (throttle && now - lastNotifiedAtElapsed < LOW_POWER_NOTIFY_INTERVAL_MS) return

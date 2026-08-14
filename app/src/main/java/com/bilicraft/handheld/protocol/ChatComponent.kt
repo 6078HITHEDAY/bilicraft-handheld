@@ -151,6 +151,18 @@ object ChatComponent {
 
     fun fromNbt(tag: NbtTag): String = spansFromNbt(tag).joinToString("") { it.text }
 
+    /** 根组件的 translate key；不是翻译组件则返回 null。 */
+    fun rootTranslateKey(raw: String): String? {
+        val trimmed = raw.trim()
+        if (!trimmed.startsWith("{")) return null
+        return runCatching {
+            org.json.JSONObject(trimmed).optString("translate", "").takeIf { it.isNotEmpty() }
+        }.getOrNull()
+    }
+
+    fun rootTranslateKey(tag: NbtTag): String? =
+        ((tag as? NbtTag.NbtCompound)?.entries?.get("translate") as? NbtTag.NbtString)?.value?.takeIf { it.isNotEmpty() }
+
     // ==== JSON 路径 ====
 
     private fun appendJson(obj: JSONObject, inherited: Style, out: MutableList<ChatSpan>) {

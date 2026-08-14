@@ -62,7 +62,9 @@ data class UiPreferences(
     val downloadSource: DownloadSource = DownloadSource.DEFAULT,
     val themeMode: ThemeMode = ThemeMode.System,
     val backgroundLowPowerEnabled: Boolean = false,
-    val pluginPanelLayout: PluginPanelLayout = PluginPanelLayout.Top
+    val pluginPanelLayout: PluginPanelLayout = PluginPanelLayout.Top,
+    val notifyWhispers: Boolean = true,
+    val notifyMentions: Boolean = true
 )
 
 /**
@@ -134,6 +136,18 @@ class UiConfigRepository(context: Context) {
 
     suspend fun setPluginPanelLayout(layout: PluginPanelLayout) = withContext(Dispatchers.IO) {
         val next = _preferences.value.copy(pluginPanelLayout = layout)
+        _preferences.value = next
+        saveValue(preferencesFile, next)
+    }
+
+    suspend fun setNotifyWhispers(enabled: Boolean) = withContext(Dispatchers.IO) {
+        val next = _preferences.value.copy(notifyWhispers = enabled)
+        _preferences.value = next
+        saveValue(preferencesFile, next)
+    }
+
+    suspend fun setNotifyMentions(enabled: Boolean) = withContext(Dispatchers.IO) {
+        val next = _preferences.value.copy(notifyMentions = enabled)
         _preferences.value = next
         saveValue(preferencesFile, next)
     }

@@ -14,6 +14,11 @@ import com.bilicraft.handheld.appicon.AppIcon
 import com.bilicraft.handheld.appicon.AppIconCatalog
 import com.bilicraft.handheld.auth.AccountSummary
 import com.bilicraft.handheld.auth.AuthState
+import com.bilicraft.handheld.chat.ChatRule
+import com.bilicraft.handheld.chat.ChatRuleSet
+import com.bilicraft.handheld.chat.Conversation
+import com.bilicraft.handheld.chat.RoutedChat
+import com.bilicraft.handheld.chat.StoredMessage
 import com.bilicraft.handheld.config.PluginPanelLayout
 import com.bilicraft.handheld.config.QuickToolLink
 import com.bilicraft.handheld.config.ServerConfig
@@ -23,11 +28,13 @@ import com.bilicraft.handheld.externalplugin.ExternalPluginEntry
 import com.bilicraft.handheld.externalplugin.ExternalPluginEntrypoint
 import com.bilicraft.handheld.externalplugin.ExternalPluginPanelHandle
 import com.bilicraft.handheld.pluginmarket.OfficialPluginMarketState
+import com.bilicraft.handheld.protocol.OnlinePlayer
 import com.bilicraft.handheld.protocol.ChatEvent
 import com.bilicraft.handheld.protocol.ChatSigningMode
 import com.bilicraft.handheld.protocol.CommandSuggestionState
 import com.bilicraft.handheld.protocol.CommandSuggestions
 import com.bilicraft.handheld.protocol.ConnectionState
+import com.bilicraft.handheld.server.ServerIconSnapshot
 import com.bilicraft.handheld.service.ConnectionService
 import com.bilicraft.handheld.session.SessionEvent
 import com.bilicraft.handheld.update.DownloadSource
@@ -41,6 +48,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,6 +87,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val externalPluginManager = AppContainer.externalPluginManager
     private val officialPluginMarket = AppContainer.officialPluginMarket
     private val cdkRepository = AppContainer.cdkRepository
+    private val chatCoordinator = AppContainer.chatCoordinator
+    private val chatRules = AppContainer.chatRuleRepository
+    private val serverIconsRepo = AppContainer.serverIconRepository
 
     val authState: StateFlow<AuthState> = auth.state
     val updateState: StateFlow<UpdateState> = updateManager.state
@@ -124,6 +136,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _ignoringBatteryOptimizations = MutableStateFlow(false)
     val ignoringBatteryOptimizations: StateFlow<Boolean> = _ignoringBatteryOptimizations.asStateFlow()
 
+    private val _chatServerId = MutableStateFlow<String?>(null)
+    val chatServerId: StateFlow<String?> = _chatServerId.asStateFlow()
+
+    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
+    val conversations: StateFlow<List<Conversation>> = _conversations.asStateFlow()
+
+    private val _chatMessages = MutableStateFlow<Map<String, List<StoredMessage>>>(emptyMap())
+    val chatMessages: StateFlow<Map<String, List<StoredMessage>>> = _chatMessages.asStateFlow()
+
+    val serverIcons: StateFlow<Map<String, ServerIconSnapshot>> = serverIconsRepo.icons
+    val onlinePlayers: StateFlow<Map<String, OnlinePlayer>> = session.onlinePlayers
+    val chatRuleSet: StateFlow<ChatRuleSet> = chatRules.ruleSet
+    val pendingChatOpen = AppContainer.pendingChatOpen
+
     private var loginJob: Job? = null
 
     val currentAccountName: String
@@ -155,6 +181,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch { mirrorSessionEvents() }
         viewModelScope.launch { mirrorCommandSuggestions() }
+        viewModelScope.launch { mirrorChatStore() }
+        viewModelScope.launch {
+            uiConfigRepo.servers.collect { list ->
+                if (_chatServerId.value == null) {
+                    val fallback = _serverRuntime.value.activeServerId ?: list.firstOrNull()?.id
+                    if (fallback != null) selectChatServer(fallback)
+                }
+            }
+        }
         viewModelScope.launch {
             if (auth.currentSession() != null) {
                 val refreshed = auth.silentRefresh()
@@ -175,6 +210,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when (event) {
                 is SessionEvent.State -> markServerState(serverId, event.state)
                 is SessionEvent.Chat -> appendServerChat(serverId, event.event)
+                is SessionEvent.Ping -> {
+                    val host = servers.value.firstOrNull { it.id == serverId }?.host.orEmpty()
+                    chatCoordinator.ingestPing(serverId, host, event.status)
+                }
             }
         }
     }
@@ -202,8 +241,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private suspend fun mirrorChatStore() {
+        combine(_chatServerId, chatCoordinator.activeStore) { id, store -> id to store }
+            .collectLatest { (id, store) ->
+                if (id == null || store == null) {
+                    _conversations.value = emptyList()
+                    _chatMessages.value = emptyMap()
+                    return@collectLatest
+                }
+                combine(store.conversations, store.messages) { conv, msg -> conv to msg }.collect { (conv, msg) ->
+                    _conversations.value = conv
+                    _chatMessages.value = msg
+                }
+            }
+    }
+
+    fun selectChatServer(serverId: String) {
+        _chatServerId.value = serverId
+        chatCoordinator.activate(serverId)
+    }
+
     private fun activateServer(serverId: String) {
         _serverRuntime.update { current -> current.copy(activeServerId = serverId) }
+        selectChatServer(serverId)
     }
 
     fun startLogin() {
@@ -379,6 +439,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     chatLogs = current.chatLogs - id
                 )
             }
+            if (_chatServerId.value == id) {
+                _chatServerId.value = servers.value.firstOrNull()?.id
+                _chatServerId.value?.let { chatCoordinator.activate(it) }
+            }
+            serverIconsRepo.delete(id)
             _uiMessage.value = "服务器配置已删除"
         }
     }
@@ -690,6 +755,101 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (_activeExternalPluginPanel.value?.pluginId == pluginId) _activeExternalPluginPanel.value = null
             _uiMessage.value = if (removed) "外部插件已移除" else "外部插件已卸载"
         }
+    }
+
+    fun refreshServerIcons(force: Boolean = false) {
+        viewModelScope.launch {
+            servers.value.map { cfg ->
+                launch(Dispatchers.IO) {
+                    runCatching { serverIconsRepo.refresh(cfg, force) }
+                }
+            }
+        }
+    }
+
+    fun sendToConversation(conversationId: String, text: String) {
+        val serverId = _chatServerId.value ?: return
+        _commandSuggestions.value = CommandSuggestions.Empty
+        if (!chatCoordinator.send(serverId, conversationId, text)) {
+            _uiMessage.value = "当前无法发送（未连接或会话无效）"
+        }
+    }
+
+    fun openWhisper(player: String): String? {
+        val serverId = _chatServerId.value ?: return null
+        return chatCoordinator.openWhisper(serverId, player)
+    }
+
+    fun markConversationRead(conversationId: String) {
+        val serverId = _chatServerId.value ?: return
+        chatCoordinator.markRead(serverId, conversationId)
+    }
+
+    fun toggleConversationPinned(conversationId: String) {
+        val serverId = _chatServerId.value ?: return
+        chatCoordinator.togglePinned(serverId, conversationId)
+    }
+
+    fun toggleConversationMuted(conversationId: String) {
+        val serverId = _chatServerId.value ?: return
+        chatCoordinator.toggleMuted(serverId, conversationId)
+    }
+
+    fun clearConversation(conversationId: String) {
+        val serverId = _chatServerId.value ?: return
+        chatCoordinator.clearConversation(serverId, conversationId)
+    }
+
+    fun deleteConversation(conversationId: String) {
+        val serverId = _chatServerId.value ?: return
+        chatCoordinator.deleteConversation(serverId, conversationId)
+    }
+
+    fun probeContacts() {
+        val serverId = _serverRuntime.value.activeServerId ?: return
+        requestCommandSuggestions(serverId, "/msg ")
+    }
+
+    fun probeContactsPrefix(prefix: String) {
+        val serverId = _serverRuntime.value.activeServerId ?: return
+        requestCommandSuggestions(serverId, "/msg ${prefix.trim()}")
+    }
+
+    fun consumePendingChatOpen() {
+        AppContainer.pendingChatOpen.value = null
+    }
+
+    fun setNotifyWhispers(enabled: Boolean) {
+        viewModelScope.launch { uiConfigRepo.setNotifyWhispers(enabled) }
+    }
+
+    fun setNotifyMentions(enabled: Boolean) {
+        viewModelScope.launch { uiConfigRepo.setNotifyMentions(enabled) }
+    }
+
+    fun upsertChatRule(rule: ChatRule) {
+        viewModelScope.launch { chatRules.upsert(rule) }
+    }
+
+    fun deleteChatRule(id: String) {
+        viewModelScope.launch { chatRules.delete(id) }
+    }
+
+    fun setMsgCommandTemplate(template: String) {
+        viewModelScope.launch { chatRules.setMsgTemplate(template) }
+    }
+
+    fun previewChatRule(plainText: String): RoutedChat? {
+        val router = com.bilicraft.handheld.chat.ChatRouter(
+            ruleSet = { chatRules.ruleSet.value },
+            selfName = { auth.currentSession()?.mcUsername }
+        )
+        return router.tryMatch(plainText)
+    }
+
+    fun playerUuid(name: String?): String? {
+        if (name.isNullOrBlank()) return null
+        return chatCoordinator.playerUuid(name)
     }
 
     private companion object {

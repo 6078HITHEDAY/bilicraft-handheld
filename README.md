@@ -14,6 +14,7 @@
 - **CDK 定时展示**：设置页内置 CDK 模块，App 只读取官方 CDN 的 `cdk/index.json`；维护者更新该文件即可按 `startsAt` / `endsAt` 控制指定时间段内展示的兑换码。
 - **强制签名可选**：主控页可切换「强制签名」；开启后取 Mojang 玩家证书并对聊天做真实签名，适配强制安全档案的正版服务器；私钥只在内存中使用，不落盘。
 - **锁屏不断线**：前台 Service（dataSync）+ PARTIAL_WAKE_LOCK + 连接参数落盘续跑 + 网络恢复立刻重连 + 设置页「忽略电池优化」引导与厂商后台限制说明；可选「低能耗挂后台」在退到后台/息屏时释放唤醒锁并降低通知刷新频率。
+- **Telegram 式聊天**：会话列表 / 气泡详情 / 联系人；私聊走可配置 `/msg` 模板；服务器图标来自 ping favicon 本地缓存；后台私聊与被 @ 可 MessagingStyle 通知并直接回复。
 
 ---
 
@@ -47,12 +48,16 @@ plugin     旧 Rhino JS 沙箱，作为内置脚本插件保留
    ▲
 session    SessionController：纯 Kotlin 业务核心，编排连接/重连/插件分发（可单测）
    ▲
+chat       ChatRouter / ChatStore / ChatCoordinator：会话归属、JSONL 持久化、乐观发送与回执去重
+   ▲
+server     ServerIconRepository：ping favicon 解码落盘、sha256 去重、6h TTL
+   ▲
 service    ConnectionService：Android 容器，前台通知 + WakeLock + 省电策略 + 连接续跑，只托管 SessionController
    ▲
-ui         Compose：登录页 / 主控页（版本下拉+服务器+聊天），MainViewModel 聚合
+ui         Compose：登录页 / 聊天列表+详情 / 工具 / 插件 / 设置，MainViewModel 聚合
 ```
 
-关键隔离边界：**插件与 UI 永远看不到原始 packet**，只消费 `ChatEvent`。协议版本变化不影响上层。
+关键隔离边界：**插件与 UI 永远看不到原始 packet**，只消费 `ChatEvent`。协议版本变化不影响上层。`chat/` 挂在 `SessionController.events` 下游，协议层不知道「会话」。插件 API（`BhChatEvent` 四字段）不变。
 
 ---
 
@@ -79,7 +84,7 @@ gradle wrapper --gradle-version 8.9
 ./gradlew installDebug
 ```
 
-> 使用流程：打开 App → 「使用微软账户登录」→ 浏览器输入设备码授权 → 回到 App → 选版本（默认自动识别）→ 填服务器地址 → 连接 → 聊天。
+> 使用流程：打开 App → 「使用微软账户登录」→ 浏览器输入设备码授权 → 回到 App → 点聊天顶栏进入「服务器/连接」抽屉 → 选服务器连接 → 公屏/私聊。
 
 ---
 
@@ -176,7 +181,22 @@ scope 固定为 `XboxLive.signin offline_access`（硬性要求，含离线刷�
 - **协议映射（palette）**：协议差异用 per-version 精确映射（`PacketPalette` + `PaletteRegistry`）收敛，逻辑包 `PacketKey` ↔ 数字 id 双向查表，取代旧的「集合宽松匹配」。login/configuration 阶段包 id 跨 1.20.2–26.x 稳定、可信度高；**play 阶段聊天/系统消息 id 版本敏感**，已按 MCCTeam/Minecraft-Console-Client 的权威逐版本表分段声明（见 `PacketPalette.modernPlayChatIds`），精确覆盖协议 767→776：767(1.21) / 768-769(1.21.2-1.21.4) / 770(1.21.5) / 771-772(1.21.6-1.21.8) / 773-774(1.21.9-1.21.11) / 775-776(26.1-26.2)。老版本（1.13–1.20.1）保留一份 legacy 基线，标注「未逐版校准」，建议配合「自动识别」使用。
 - **聊天组件解析**：1.20.3（协议765）+ 服务器以「网络 NBT」下发文本组件，已用手写最小 NBT reader（`Nbt.kt`）解析；更早版本走 JSON 字符串路径。System Chat 内容在包首，提取精确；**Player Chat 包内容前有 sender/index/签名等复杂头部，当前按宽松策略处理**，失配则跳过而非崩溃，完整解析待后续按真实抓包细化。
 - **1.19.3+ 聊天签名（session 体系）**：提供「强制签名」开关。关闭时发未签名结构，兼容离线服；开启时进 PLAY 后先发 Chat Session Update 上报玩家公钥 + Mojang 签名 + sessionId，之后每条消息带自增 index，用私钥做 SHA256withRSA 签名，`acknowledged` 为固定 20-bit BitSet（3 字节）。**仅支持 session 体系（协议 761/1.19.3 及以上）**；1.19–1.19.2 的旧逐条签名不支持，遇强制签名服会回退未签名。待签字节布局对字节序/字段顺序极敏感，**需对真实 `enforce-secure-profile=true` 服务器校准**（唯一无法纯离线验证的部分）。私钥仅在内存流转、不落盘。
-- **测试与构建验证**：协议原语（NBT reader、Fixed BitSet、palette 双向映射、签名布局）有纯 JVM 单测（`app/src/test`），可离线跑。整包仍未在缺少 Android SDK 的环境编译验证，请以 Android Studio 同步结果为准。
+- **测试与构建验证**：协议原语（NBT reader、Fixed BitSet、palette 双向映射、签名布局）以及 chat 域（span 切片、规则路由、回执去重、JSONL、favicon 去重）有纯 JVM 单测（`app/src/test`），可离线跑。整包仍未在缺少 Android SDK 的环境编译验证，请以 Android Studio 同步结果为准。
+- **在线玩家列表**：`CB_PLAYER_INFO_UPDATE/REMOVE` 只在已核对协议段（767、773–776）登记；其它版本不注册该包，联系人自动降级为 `/msg ` 命令补全探针。
+
+---
+
+## 手动回归清单
+
+发版或大改聊天/连接后，用碧玺主服 `mc.bilicraft.com:25577`（1.21.11 / 协议 773）过一遍：
+
+1. **连接**：自动识别版本 → 进 PLAY → 公屏能收。断线重连与杀进程后续跑仍能接上。
+2. **死亡 / 签名**：血量为 0 时不能发聊天；强制签名服可发已签名消息。
+3. **私聊**：`/msg` 收发进独立会话，乐观气泡 8s 内匹配回执后去掉重复行；超时显示钟表「未确认」而不是失败。
+4. **公屏 / 频道**：无 target 的玩家消息进公屏；命中频道规则的进频道会话。不命中规则时不丢消息。
+5. **通知**：退到后台后私聊弹出 MessagingStyle，可直接回复；点通知直达会话。前台通知摘要会变成最近一条。
+6. **服务器图标**：进聊天列表会 ping favicon；杀进程重启后仍显示缓存图。ping 失败不得清空旧图标。
+7. **插件面板**：聊天页右侧入口仍能打开外部插件页面；`BhChatEvent` 仍是原来的 4 个字段。
 
 ---
 

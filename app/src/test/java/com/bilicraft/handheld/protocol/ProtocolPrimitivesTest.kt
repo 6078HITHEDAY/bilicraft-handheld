@@ -118,6 +118,8 @@ class ProtocolPrimitivesTest {
         assertEquals(0x09, palette.sbId(PacketKey.SB_CHAT_SESSION_UPDATE))
         assertEquals(PacketKey.CB_SYSTEM_CHAT, palette.cbKey(0x77, PacketPhase.PLAY))
         assertEquals(PacketKey.CB_PLAYER_CHAT, palette.cbKey(0x3F, PacketPhase.PLAY))
+        assertEquals(PacketKey.CB_PLAYER_INFO_REMOVE, palette.cbKey(0x43, PacketPhase.PLAY))
+        assertEquals(PacketKey.CB_PLAYER_INFO_UPDATE, palette.cbKey(0x44, PacketPhase.PLAY))
         assertEquals(PacketKey.CB_PLAY_DISCONNECT, palette.cbKey(0x20, PacketPhase.PLAY))
         assertEquals(PacketKey.CB_KEEP_ALIVE_PLAY, palette.cbKey(0x2B, PacketPhase.PLAY))
     }
@@ -146,6 +148,16 @@ class ProtocolPrimitivesTest {
         assertEquals(0x77, reverseLookup(v774, PacketKey.CB_SYSTEM_CHAT))
         assertEquals(0x07, v767.sbId(PacketKey.SB_CHAT_SESSION_UPDATE))
         assertEquals(0x09, v774.sbId(PacketKey.SB_CHAT_SESSION_UPDATE))
+    }
+
+    @Test
+    fun `未核对协议段不注册玩家列表包以便降级补全探针`() {
+        val unverified = PaletteRegistry.forProtocol(770)
+        assertNull(reverseLookup(unverified, PacketKey.CB_PLAYER_INFO_UPDATE))
+        assertNull(reverseLookup(unverified, PacketKey.CB_PLAYER_INFO_REMOVE))
+        val verified = PaletteRegistry.forProtocol(773)
+        assertEquals(0x44, reverseLookup(verified, PacketKey.CB_PLAYER_INFO_UPDATE))
+        assertEquals(0x43, reverseLookup(verified, PacketKey.CB_PLAYER_INFO_REMOVE))
     }
 
     @Test

@@ -10,6 +10,7 @@ import io.netty.channel.EventLoopGroup
 import io.netty.channel.nio.NioEventLoopGroup
 import io.netty.channel.socket.nio.NioSocketChannel
 import com.bilicraft.handheld.protocol.McTypes.readByteArray
+import com.bilicraft.handheld.protocol.McTypes.readUuid
 import com.bilicraft.handheld.protocol.McTypes.readString
 import com.bilicraft.handheld.protocol.McTypes.readVarInt
 import com.bilicraft.handheld.protocol.McTypes.uuidFromUndashed
@@ -77,6 +78,9 @@ class MinecraftClient(
     private val _commandSuggestions = MutableStateFlow(CommandSuggestions.Empty)
     val commandSuggestions: StateFlow<CommandSuggestionState> = _commandSuggestions.asStateFlow()
 
+    private val _onlinePlayers = MutableStateFlow<Map<String, OnlinePlayer>>(emptyMap())
+    val onlinePlayers: StateFlow<Map<String, OnlinePlayer>> = _onlinePlayers.asStateFlow()
+
     private var channel: Channel? = null
     private var group: EventLoopGroup? = null
     private val http = OkHttpClient()
@@ -124,6 +128,7 @@ class MinecraftClient(
         commandSuggestionRequestId++
         latestCommandSuggestionInput = ""
         _commandSuggestions.value = CommandSuggestions.Empty
+        _onlinePlayers.value = emptyMap()
         _state.value = ConnectionState.Disconnected
     }
 
@@ -401,6 +406,8 @@ class MinecraftClient(
                 }
                 PacketKey.CB_SYSTEM_CHAT -> emitSystemChat(buf)
                 PacketKey.CB_PLAYER_CHAT -> emitPlayerChat(buf)
+                PacketKey.CB_PLAYER_INFO_UPDATE -> applyPlayerInfoUpdate(buf)
+                PacketKey.CB_PLAYER_INFO_REMOVE -> applyPlayerInfoRemove(buf)
                 PacketKey.CB_COMMAND_SUGGESTIONS -> updateCommandSuggestions(buf)
                 PacketKey.CB_DECLARE_COMMANDS -> skipDeclareCommands(buf)
                 PacketKey.CB_START_CONFIGURATION -> acknowledgeConfiguration(ctx)
@@ -427,6 +434,7 @@ class MinecraftClient(
             ctx.writeAndFlush(ack)
             chatSessionReported = false
             playerDead = false
+            _onlinePlayers.value = emptyMap()
             latestCommandSuggestionInput = ""
             _commandSuggestions.value = CommandSuggestions.Empty
             phase = Phase.CONFIGURATION
@@ -480,13 +488,13 @@ class MinecraftClient(
          *   - 否则 → JSON 字符串组件
          * 返回 (spans, raw)；raw 用于插件消费原始组件。
          */
-        private fun readComponent(buf: ByteBuf): Pair<List<ChatSpan>, String> =
+        private fun readComponent(buf: ByteBuf): ReadComponent =
             if (palette.chatComponentIsNbt) {
                 val tag = buf.readNetworkNbt()
-                ChatComponent.spansFromNbt(tag) to tag.toString()
+                ReadComponent(ChatComponent.spansFromNbt(tag), tag.toString(), ChatComponent.rootTranslateKey(tag))
             } else {
                 val json = buf.readString()
-                ChatComponent.toSpans(json) to json
+                ReadComponent(ChatComponent.toSpans(json), json, ChatComponent.rootTranslateKey(json))
             }
 
         /**
@@ -495,10 +503,17 @@ class MinecraftClient(
          * 内容即包首字段，直接读取即精确。
          */
         private fun emitSystemChat(buf: ByteBuf) {
-            val (spans, raw) = runCatching { readComponent(buf) }.getOrNull() ?: return
-            val plain = spans.joinToString("") { it.text }
+            val component = runCatching { readComponent(buf) }.getOrNull() ?: return
+            val plain = component.spans.joinToString("") { it.text }
             if (plain.isBlank()) return
-            _incoming.tryEmit(ChatEvent(plainText = plain, rawJson = raw, spans = spans))
+            _incoming.tryEmit(
+                ChatEvent(
+                    plainText = plain,
+                    rawJson = component.raw,
+                    spans = component.spans,
+                    translateKey = component.translateKey
+                )
+            )
         }
 
         /**
@@ -542,25 +557,29 @@ class MinecraftClient(
                 skipFilterMask(buf)                              // filter type (+partial 位组)
 
                 buf.readVarInt()                                 // chatType holder（引用 id）
-                val (senderSpans, _) = readComponent(buf)        // 发送者显示名
-                if (buf.readBoolean()) readComponent(buf)        // targetName（忽略）
+                val senderComponent = readComponent(buf)        // 发送者显示名
+                val target = if (buf.readBoolean()) {
+                    readComponent(buf).spans.joinToString("") { it.text }.ifBlank { null }
+                } else null
 
-                val (contentSpans, contentRaw) = unsigned
-                    ?: (ChatComponent.toSpans(bodyContent) to bodyContent)
-                Triple(senderSpans, contentSpans, contentRaw)
+                val contentSpans = unsigned?.spans ?: ChatComponent.toSpans(bodyContent)
+                val contentRaw = unsigned?.raw ?: bodyContent
+                val translateKey = unsigned?.translateKey
+                ParsedPlayerChat(senderComponent.spans, contentSpans, contentRaw, target, translateKey)
             }.getOrNull() ?: return
 
-            val (senderSpans, contentSpans, contentRaw) = parsed
-            val senderName = senderSpans.joinToString("") { it.text }
-            val spans = decorateChat(senderSpans, contentSpans)
+            val senderName = parsed.senderSpans.joinToString("") { it.text }
+            val spans = decorateChat(parsed.senderSpans, parsed.contentSpans)
             val plain = spans.joinToString("") { it.text }
             if (plain.isBlank()) return
             _incoming.tryEmit(
                 ChatEvent(
                     plainText = plain,
-                    rawJson = contentRaw,
+                    rawJson = parsed.contentRaw,
                     sender = senderName.ifBlank { null },
-                    spans = spans
+                    spans = spans,
+                    target = parsed.target,
+                    translateKey = parsed.translateKey
                 )
             )
         }
@@ -579,6 +598,67 @@ class MinecraftClient(
             if (buf.readVarInt() == 2) {
                 val longs = buf.readVarInt()
                 buf.skipBytes(longs * 8)
+            }
+        }
+
+        /**
+         * Player Info Update：只关心 ADD_PLAYER 拿到 name+uuid。其它 action 按字段跳过。
+         * 解析失败则忽略本包，不影响聊天连接。
+         */
+        private fun applyPlayerInfoUpdate(buf: ByteBuf) {
+            runCatching {
+                val actions = buf.readByte().toInt() and 0xFF
+                val count = buf.readVarInt()
+                val addPlayer = actions and 0x01 != 0
+                val initChat = actions and 0x02 != 0
+                val updateGameMode = actions and 0x04 != 0
+                val updateListed = actions and 0x08 != 0
+                val updateLatency = actions and 0x10 != 0
+                val updateDisplayName = actions and 0x20 != 0
+                val updateListOrder = actions and 0x40 != 0 && protocolNumber >= 768
+                val updateHat = actions and 0x80 != 0 && protocolNumber >= 769
+                repeat(count) {
+                    val uuid = buf.readUuid().toString()
+                    var name: String? = null
+                    if (addPlayer) {
+                        name = buf.readString(16)
+                        val properties = buf.readVarInt()
+                        repeat(properties) {
+                            buf.readString()
+                            buf.readString()
+                            if (buf.readBoolean()) buf.readString()
+                        }
+                    }
+                    if (initChat && buf.readBoolean()) {
+                        buf.skipBytes(16)
+                        buf.readLong()
+                        val keyLen = buf.readVarInt()
+                        buf.skipBytes(keyLen)
+                        val sigLen = buf.readVarInt()
+                        buf.skipBytes(sigLen)
+                    }
+                    if (updateGameMode) buf.readVarInt()
+                    if (updateListed) buf.readBoolean()
+                    if (updateLatency) buf.readVarInt()
+                    if (updateDisplayName && buf.readBoolean()) readComponent(buf)
+                    if (updateListOrder) buf.readVarInt()
+                    if (updateHat) buf.readBoolean()
+                    val playerName = name
+                    if (addPlayer && !playerName.isNullOrBlank()) {
+                        _onlinePlayers.value = _onlinePlayers.value + (uuid to OnlinePlayer(uuid, playerName))
+                    }
+                }
+            }
+        }
+
+        private fun applyPlayerInfoRemove(buf: ByteBuf) {
+            runCatching {
+                val count = buf.readVarInt()
+                val remove = buildSet {
+                    repeat(count) { add(buf.readUuid().toString()) }
+                }
+                if (remove.isEmpty()) return@runCatching
+                _onlinePlayers.value = _onlinePlayers.value.filterKeys { it !in remove }
             }
         }
 
@@ -678,3 +758,17 @@ class MinecraftClient(
         const val ACKNOWLEDGED_BITS = 20
     }
 }
+
+private data class ReadComponent(
+    val spans: List<ChatSpan>,
+    val raw: String,
+    val translateKey: String?
+)
+
+private data class ParsedPlayerChat(
+    val senderSpans: List<ChatSpan>,
+    val contentSpans: List<ChatSpan>,
+    val contentRaw: String,
+    val target: String?,
+    val translateKey: String?
+)
