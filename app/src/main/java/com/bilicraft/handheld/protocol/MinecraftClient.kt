@@ -11,6 +11,7 @@ import io.netty.channel.nio.NioEventLoopGroup
 import io.netty.channel.socket.nio.NioSocketChannel
 import com.bilicraft.handheld.protocol.McTypes.readByteArray
 import com.bilicraft.handheld.protocol.McTypes.readString
+import com.bilicraft.handheld.protocol.McTypes.readUuid
 import com.bilicraft.handheld.protocol.McTypes.readVarInt
 import com.bilicraft.handheld.protocol.McTypes.uuidFromUndashed
 import com.bilicraft.handheld.protocol.McTypes.writeByteArray
@@ -31,6 +32,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import org.json.JSONObject
 import javax.crypto.Cipher
+import java.util.UUID
 
 /**
  * MC Java 协议客户端主状态机。
@@ -42,6 +44,7 @@ import javax.crypto.Cipher
  * 对外只暴露：
  *   - state: StateFlow<ConnectionState>
  *   - incoming: SharedFlow<ChatEvent>     （服务器聊天，已归一化）
+ *   - roster: SharedFlow<RosterEvent>    （Tab 列表玩家增减）
  *   - sendChat(text)                       （发送聊天）
  * 原始 packet、加密、包 id 全部封死在内部。
  */
@@ -73,6 +76,9 @@ class MinecraftClient(
 
     private val _incoming = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 256)
     val incoming: SharedFlow<ChatEvent> = _incoming.asSharedFlow()
+
+    private val _roster = MutableSharedFlow<RosterEvent>(extraBufferCapacity = 64)
+    val roster: SharedFlow<RosterEvent> = _roster.asSharedFlow()
 
     private val _commandSuggestions = MutableStateFlow(CommandSuggestions.Empty)
     val commandSuggestions: StateFlow<CommandSuggestionState> = _commandSuggestions.asStateFlow()
@@ -401,6 +407,8 @@ class MinecraftClient(
                 }
                 PacketKey.CB_SYSTEM_CHAT -> emitSystemChat(buf)
                 PacketKey.CB_PLAYER_CHAT -> emitPlayerChat(buf)
+                PacketKey.CB_PLAYER_INFO_UPDATE -> emitPlayerInfoUpdate(buf)
+                PacketKey.CB_PLAYER_INFO_REMOVE -> emitPlayerInfoRemove(buf)
                 PacketKey.CB_COMMAND_SUGGESTIONS -> updateCommandSuggestions(buf)
                 PacketKey.CB_DECLARE_COMMANDS -> skipDeclareCommands(buf)
                 PacketKey.CB_START_CONFIGURATION -> acknowledgeConfiguration(ctx)
@@ -496,37 +504,96 @@ class MinecraftClient(
          */
         private fun emitSystemChat(buf: ByteBuf) {
             val (spans, raw) = runCatching { readComponent(buf) }.getOrNull() ?: return
+            val overlay = runCatching { buf.readBoolean() }.getOrDefault(false)
+            if (overlay) return
             val plain = spans.joinToString("") { it.text }
             if (plain.isBlank()) return
-            _incoming.tryEmit(ChatEvent(plainText = plain, rawJson = raw, spans = spans))
+            val angle = ANGLE_SENDER.find(plain)
+            val sender = angle?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+            _incoming.tryEmit(ChatEvent(plainText = plain, rawJson = raw, sender = sender, spans = spans))
+        }
+
+        private fun emitPlayerInfoUpdate(buf: ByteBuf) {
+            val parsed = runCatching { parsePlayerInfoUpdate(buf) }.getOrNull() ?: return
+            if (parsed.isNotEmpty()) _roster.tryEmit(RosterEvent.Upsert(parsed))
+        }
+
+        private fun emitPlayerInfoRemove(buf: ByteBuf) {
+            val uuids = runCatching {
+                val count = buf.readVarInt()
+                List(count) { buf.readUuid().toString() }
+            }.getOrNull() ?: return
+            if (uuids.isNotEmpty()) _roster.tryEmit(RosterEvent.Remove(uuids))
         }
 
         /**
-         * Player Chat（玩家签名聊天，1.19.3+ session 体系）。
-         *
-         * 内容不在包首：前面有一整套签名头部，须逐字段跳过才能取到真正可读的内容与发送者名。
-         * 字段顺序对齐 vanilla ClientboundPlayerChatPacket / MCC：
-         *
-         *   sender: UUID (16B)
-         *   index: VarInt                                    // 消息序号
-         *   signature: 可选 256B                             // present 布尔为 true 时存在
-         *   ── 以上为 SignedMessageHeader/Body 的签名部分 ──
-         *   body.content: String                             // 玩家键入的原始明文（未装饰）
-         *   body.timestamp: Long
-         *   body.salt: Long
-         *   previousMessages: VarInt 计数 + 每条 { id: VarInt; id==0 时附 256B 签名 }
-         *   ── 以上为可验证消息体，UI 不需要，仅跳过 ──
-         *   unsignedContent: 可选组件                        // 服务器改写后的展示内容（present 布尔）
-         *   filterType: VarInt                               // 0=PASS 1=FULLY 2=PARTIALLY(+长整型位组)
-         *   ── 以下为展示装饰，UI 需要 ──
-         *   chatType: VarInt                                 // 注册表引用（holder，服务器恒为引用）
-         *   senderName: 组件                                 // 发送者显示名（带前缀/颜色）
-         *   targetName: 可选组件                             // 私聊等定向目标名
-         *
-         * 展示对齐 vanilla：有 unsignedContent 用它，否则用明文 body.content，
-         * 再套 chat.type.text 装饰「<发送者名> 内容」。装饰模板无法从注册表取，
-         * 但服务器聊天绝大多数即此格式，直接构造等价片段。
+         * Player Info Update（1.19.3+）：actions 位掩码 + 玩家条目。
+         * 只提取 ADD_PLAYER 的名字与可选 latency，供通讯录/群成员；其它 action 字段按序跳过。
          */
+        private fun parsePlayerInfoUpdate(buf: ByteBuf): List<RosterPlayer> {
+            val actions = buf.readByte().toInt() and 0xFF
+            val addPlayer = actions and (1 shl ACTION_ADD_PLAYER) != 0
+            val initChat = actions and (1 shl ACTION_INITIALIZE_CHAT) != 0
+            val updateGameMode = actions and (1 shl ACTION_UPDATE_GAME_MODE) != 0
+            val updateListed = actions and (1 shl ACTION_UPDATE_LISTED) != 0
+            val updateLatency = actions and (1 shl ACTION_UPDATE_LATENCY) != 0
+            val updateDisplayName = actions and (1 shl ACTION_UPDATE_DISPLAY_NAME) != 0
+            val updateListOrder = actions and (1 shl ACTION_UPDATE_LIST_ORDER) != 0
+            val updateHat = actions and (1 shl ACTION_UPDATE_HAT) != 0
+
+            val count = buf.readVarInt()
+            val out = ArrayList<RosterPlayer>(count)
+            repeat(count) {
+                val uuid = buf.readUuid()
+                var name = ""
+                var latency = -1
+                if (addPlayer) {
+                    name = buf.readString(16)
+                    val propCount = buf.readVarInt()
+                    repeat(propCount) {
+                        buf.readString()
+                        buf.readString()
+                        if (buf.readBoolean()) buf.readString()
+                    }
+                }
+                if (initChat) {
+                    if (buf.readBoolean()) {
+                        buf.readUuid()
+                        buf.readLong()
+                        val keyLen = buf.readVarInt()
+                        buf.skipBytes(keyLen)
+                        val sigLen = buf.readVarInt()
+                        buf.skipBytes(sigLen)
+                    }
+                }
+                if (updateGameMode) buf.readVarInt()
+                if (updateListed) buf.readBoolean()
+                if (updateLatency) latency = buf.readVarInt()
+                if (updateDisplayName) {
+                    if (buf.readBoolean()) readComponent(buf)
+                }
+                if (updateListOrder) buf.readVarInt()
+                if (updateHat) buf.readBoolean()
+                if (addPlayer && name.isNotBlank()) {
+                    out += RosterPlayer(
+                        uuid = uuid.toString(),
+                        name = name,
+                        online = true,
+                        latencyMs = latency
+                    )
+                } else if (updateLatency || updateListed) {
+                    // 无名字的增量更新：由 UI 按 uuid 合并到已有条目
+                    out += RosterPlayer(
+                        uuid = uuid.toString(),
+                        name = "",
+                        online = true,
+                        latencyMs = latency
+                    )
+                }
+            }
+            return out
+        }
+
         private fun emitPlayerChat(buf: ByteBuf) {
             val parsed = runCatching {
                 buf.skipBytes(16)                                // sender UUID
@@ -676,5 +743,16 @@ class MinecraftClient(
     private companion object {
         // 聊天 acknowledged 字段固定 20 位（1.19.1+），序列化为 3 字节
         const val ACKNOWLEDGED_BITS = 20
+
+        val ANGLE_SENDER = Regex("""^<([^>\n]{1,32})>\s?(.*)$""", RegexOption.DOT_MATCHES_ALL)
+
+        const val ACTION_ADD_PLAYER = 0
+        const val ACTION_INITIALIZE_CHAT = 1
+        const val ACTION_UPDATE_GAME_MODE = 2
+        const val ACTION_UPDATE_LISTED = 3
+        const val ACTION_UPDATE_LATENCY = 4
+        const val ACTION_UPDATE_DISPLAY_NAME = 5
+        const val ACTION_UPDATE_LIST_ORDER = 6
+        const val ACTION_UPDATE_HAT = 7
     }
 }

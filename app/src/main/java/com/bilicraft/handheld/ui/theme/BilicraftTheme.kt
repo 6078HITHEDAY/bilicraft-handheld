@@ -45,11 +45,24 @@ private val BilicraftDarkColors = darkColorScheme(
     surfaceVariant = Color(0xFF263142)
 )
 
-/**
- * 聊天记录区配色：MC 聊天惯用深底浅字，因此不随明暗主题变化。
- */
-internal val ChatSurfaceColor = Color(0xFF1E1E1E)
-internal val ChatDefaultTextColor = Color(0xFFE0E0E0)
+/** Telegram 向气泡：跟随 Material 主题，浅色偏白底。 */
+@Composable
+internal fun chatSurfaceColor(): Color = MaterialTheme.colorScheme.background
+
+@Composable
+internal fun chatDefaultTextColor(): Color = MaterialTheme.colorScheme.onSurface
+
+@Composable
+internal fun bubbleSelfColor(): Color = MaterialTheme.colorScheme.primaryContainer
+
+@Composable
+internal fun bubbleOtherColor(): Color = MaterialTheme.colorScheme.surfaceVariant
+
+@Composable
+internal fun bubbleSystemColor(): Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+
+@Composable
+internal fun bubbleTimestampColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
 
 /** 连接状态色：绿=已连接，黄=进行中，红=失败，灰=未连接。 */
 internal val StatusGreen = Color(0xFF2E7D32)

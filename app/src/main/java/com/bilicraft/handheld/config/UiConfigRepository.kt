@@ -33,12 +33,13 @@ data class ServerConfig(
     )
 }
 
+/** 按服务器软链接的联系人（私聊走 /msg）。 */
 @Serializable
-data class QuickToolLink(
+data class ServerContact(
     val id: String,
-    val title: String,
-    val url: String,
-    val description: String = ""
+    val serverId: String,
+    val playerName: String,
+    val note: String = ""
 )
 
 @Serializable
@@ -62,29 +63,29 @@ data class UiPreferences(
     val downloadSource: DownloadSource = DownloadSource.DEFAULT,
     val themeMode: ThemeMode = ThemeMode.System,
     val backgroundLowPowerEnabled: Boolean = false,
-    val pluginPanelLayout: PluginPanelLayout = PluginPanelLayout.Top
+    val pluginPanelLayout: PluginPanelLayout = PluginPanelLayout.Top,
+    val primaryContactServerId: String? = null
 )
 
 /**
  * UI-facing 本地配置仓库。
  *
  * 依赖现有逻辑：连接仍由 SessionController / ConnectionService 执行，仓库只保存 UI 可选项。
- * 纯 UI 补足：服务器配置与快捷工具目前没有既有 Repository，因此这里用 app 私有 JSON 文件承载。
+ * 纯 UI 补足：服务器配置与联系人用 app 私有 JSON 文件承载。
  * 边界约束：不读写 SecureStore，不实例化 Room，不改变微软登录、协议、插件或 Token 状态机。
  */
 class UiConfigRepository(context: Context) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val serverFile = File(context.filesDir, "ui_servers.json")
-    private val toolsFile = File(context.filesDir, "ui_tools.json")
+    private val contactsFile = File(context.filesDir, "ui_contacts.json")
     private val preferencesFile = File(context.filesDir, "ui_preferences.json")
     private val officialSigningMigrationFile = File(context.filesDir, "ui_official_server_signing_v1.migrated")
-    private val railwayToolMigrationFile = File(context.filesDir, "ui_railway_tool_v1.migrated")
 
     private val _servers = MutableStateFlow<List<ServerConfig>>(emptyList())
     val servers: StateFlow<List<ServerConfig>> = _servers.asStateFlow()
 
-    private val _tools = MutableStateFlow<List<QuickToolLink>>(emptyList())
-    val tools: StateFlow<List<QuickToolLink>> = _tools.asStateFlow()
+    private val _contacts = MutableStateFlow<List<ServerContact>>(emptyList())
+    val contacts: StateFlow<List<ServerContact>> = _contacts.asStateFlow()
 
     private val _preferences = MutableStateFlow(UiPreferences())
     val preferences: StateFlow<UiPreferences> = _preferences.asStateFlow()
@@ -97,9 +98,9 @@ class UiConfigRepository(context: Context) {
                 if (normalized != servers) saveList(serverFile, normalized)
             }
         }
-        val loadedTools = loadList<QuickToolLink>(toolsFile) ?: defaultTools().also { saveList(toolsFile, it) }
-        _tools.value = migrateRailwayTool(loadedTools)
+        _contacts.value = loadList(contactsFile) ?: emptyList()
         _preferences.value = loadValue(preferencesFile) ?: UiPreferences().also { saveValue(preferencesFile, it) }
+        reconcilePrimaryContactServer()
     }
 
     suspend fun setChatAutoScroll(enabled: Boolean) = withContext(Dispatchers.IO) {
@@ -138,6 +139,12 @@ class UiConfigRepository(context: Context) {
         saveValue(preferencesFile, next)
     }
 
+    suspend fun setPrimaryContactServerId(serverId: String?) = withContext(Dispatchers.IO) {
+        val next = _preferences.value.copy(primaryContactServerId = serverId)
+        _preferences.value = next
+        saveValue(preferencesFile, next)
+    }
+
     suspend fun upsertServer(config: ServerConfig) = withContext(Dispatchers.IO) {
         val normalizedConfig = normalizeServerProtocol(config)
         val current = _servers.value
@@ -148,38 +155,58 @@ class UiConfigRepository(context: Context) {
         }
         _servers.value = next
         saveList(serverFile, next)
+        if (_preferences.value.primaryContactServerId == null) {
+            setPrimaryContactServerId(normalizedConfig.id)
+        }
     }
 
     suspend fun deleteServer(id: String) = withContext(Dispatchers.IO) {
         val next = _servers.value.filterNot { it.id == id }
         _servers.value = next
         saveList(serverFile, next)
-    }
-
-    suspend fun upsertTool(link: QuickToolLink) = withContext(Dispatchers.IO) {
-        val current = _tools.value
-        val next = if (current.any { it.id == link.id }) {
-            current.map { if (it.id == link.id) link else it }
-        } else {
-            current + link
+        val remainingContacts = _contacts.value.filterNot { it.serverId == id }
+        if (remainingContacts.size != _contacts.value.size) {
+            _contacts.value = remainingContacts
+            saveList(contactsFile, remainingContacts)
         }
-        _tools.value = next
-        saveList(toolsFile, next)
+        if (_preferences.value.primaryContactServerId == id) {
+            setPrimaryContactServerId(next.firstOrNull()?.id)
+        }
     }
 
-    suspend fun deleteTool(id: String) = withContext(Dispatchers.IO) {
-        val next = _tools.value.filterNot { it.id == id }
-        _tools.value = next
-        saveList(toolsFile, next)
+    suspend fun upsertContact(contact: ServerContact) = withContext(Dispatchers.IO) {
+        val current = _contacts.value
+        val next = if (current.any { it.id == contact.id }) {
+            current.map { if (it.id == contact.id) contact else it }
+        } else {
+            current + contact
+        }
+        _contacts.value = next
+        saveList(contactsFile, next)
     }
 
-    suspend fun moveTool(fromIndex: Int, toIndex: Int) = withContext(Dispatchers.IO) {
-        val current = _tools.value.toMutableList()
-        if (fromIndex !in current.indices || toIndex !in current.indices) return@withContext
-        val item = current.removeAt(fromIndex)
-        current.add(toIndex, item)
-        _tools.value = current
-        saveList(toolsFile, current)
+    suspend fun deleteContact(id: String) = withContext(Dispatchers.IO) {
+        val next = _contacts.value.filterNot { it.id == id }
+        _contacts.value = next
+        saveList(contactsFile, next)
+    }
+
+    fun newContact(serverId: String, playerName: String, note: String = ""): ServerContact =
+        ServerContact(
+            id = UUID.randomUUID().toString(),
+            serverId = serverId,
+            playerName = playerName.trim(),
+            note = note.trim()
+        )
+
+    private fun reconcilePrimaryContactServer() {
+        val primary = _preferences.value.primaryContactServerId
+        val servers = _servers.value
+        if (servers.isEmpty()) return
+        if (primary != null && servers.any { it.id == primary }) return
+        val fallback = servers.first().id
+        _preferences.value = _preferences.value.copy(primaryContactServerId = fallback)
+        saveValue(preferencesFile, _preferences.value)
     }
 
     private fun normalizeServerProtocol(config: ServerConfig): ServerConfig = config.copy(
@@ -200,13 +227,6 @@ class UiConfigRepository(context: Context) {
         versionId = version.id,
         protocolNumber = version.protocolNumber,
         signingRequired = signingRequired
-    )
-
-    fun newTool(title: String, url: String, description: String): QuickToolLink = QuickToolLink(
-        id = UUID.randomUUID().toString(),
-        title = title,
-        url = url,
-        description = description
     )
 
     private inline fun <reified T> loadList(file: File): List<T>? =
@@ -245,35 +265,6 @@ class UiConfigRepository(context: Context) {
         return next
     }
 
-    /**
-     * 一次性补入铁路实时线路图。迁移标记写入后尊重用户删除，不会在后续启动强制恢复。
-     * 已通过 id 或 URL 存在时只写迁移标记，避免用户手动添加过同一网站后出现重复项。
-     */
-    private fun migrateRailwayTool(tools: List<QuickToolLink>): List<QuickToolLink> {
-        if (railwayToolMigrationFile.exists()) return tools
-        val railway = railwayTool()
-        val alreadyExists = tools.any { it.id == railway.id || it.url.equals(railway.url, ignoreCase = true) }
-        val next = if (alreadyExists) {
-            tools
-        } else {
-            val insertAt = tools.indexOfFirst { it.id == "bilicraft-map" }
-                .takeIf { it >= 0 }
-                ?.plus(1)
-                ?: tools.size
-            tools.take(insertAt) + railway + tools.drop(insertAt)
-        }
-        saveList(toolsFile, next)
-        railwayToolMigrationFile.writeText("done")
-        return next
-    }
-
-    private fun railwayTool() = QuickToolLink(
-        id = RAILWAY_TOOL_ID,
-        title = "铁路实时线路图",
-        url = RAILWAY_TOOL_URL,
-        description = "帕拉伦铁路实时线路与列车位置"
-    )
-
     private fun defaultServers(): List<ServerConfig> = listOf(
         ServerConfig(
             id = OFFICIAL_SERVER_ID,
@@ -286,31 +277,7 @@ class UiConfigRepository(context: Context) {
         )
     )
 
-    private fun defaultTools(): List<QuickToolLink> = listOf(
-        QuickToolLink(
-            id = "bilicraft-map",
-            title = "卫星地图",
-            url = "https://map.bilicraft.com/s2/hyperion/#",
-            description = "碧玺服务器在线地图"
-        ),
-        railwayTool(),
-        QuickToolLink(
-            id = "bilicraft-wiki",
-            title = "Wiki",
-            url = "https://www.yuque.com/sasanarx/bilicraft",
-            description = "服务器规则与玩法资料"
-        ),
-        QuickToolLink(
-            id = "bilicraft-bbs",
-            title = "BBS",
-            url = "https://bbs.bilicraft.com/",
-            description = "社区论坛"
-        )
-    )
-
     private companion object {
         const val OFFICIAL_SERVER_ID = "bilicraft-official-main"
-        const val RAILWAY_TOOL_ID = "paralun-railway-map"
-        const val RAILWAY_TOOL_URL = "https://railwaymap.big-brother.top/"
     }
 }

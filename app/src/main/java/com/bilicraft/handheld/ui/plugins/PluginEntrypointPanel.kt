@@ -233,7 +233,7 @@ internal fun PluginEntrypointSidePanel(
                     ) {
                         if (entrypoints.isEmpty()) {
                             Text(
-                                text = "当前没有可用插件入口。请先在“插件管理”中安装并启用插件。",
+                                text = "当前没有可用插件入口。请到「设置 → 插件管理」安装并启用插件，然后点屏幕右侧的插件条打开。",
                                 modifier = Modifier.padding(top = if (topAligned) 12.dp else 0.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

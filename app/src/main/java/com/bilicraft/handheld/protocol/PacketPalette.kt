@@ -59,6 +59,8 @@ enum class PacketKey(val phase: PacketPhase) {
     CB_DECLARE_COMMANDS(PacketPhase.PLAY),              // 服务器声明 Brigadier 命令树
     CB_SYSTEM_CHAT(PacketPhase.PLAY),                   // 系统消息（服务器广播、命令回显等，多数聊天走这里）
     CB_PLAYER_CHAT(PacketPhase.PLAY),                   // 玩家签名聊天（结构复杂，这里只提取可读文本）
+    CB_PLAYER_INFO_UPDATE(PacketPhase.PLAY),            // Tab 列表增改（1.19.3+）
+    CB_PLAYER_INFO_REMOVE(PacketPhase.PLAY),            // Tab 列表移除
     CB_START_CONFIGURATION(PacketPhase.PLAY),           // 1.20.2+ 代理服切换子服时要求回到 configuration
     CB_RESPAWN(PacketPhase.PLAY),                       // 重生/换维度：恢复玩家存活状态
     CB_UPDATE_HEALTH(PacketPhase.PLAY),                 // 生命值更新：health<=0 时禁止发送聊天，避免签名链 index 失步
@@ -153,6 +155,8 @@ object PaletteRegistry {
                 ) else emptyArray()),
                 PacketKey.CB_SYSTEM_CHAT to play.cbSystemChat,
                 PacketKey.CB_PLAYER_CHAT to play.cbPlayerChat,
+                PacketKey.CB_PLAYER_INFO_UPDATE to play.cbPlayerInfoUpdate,
+                PacketKey.CB_PLAYER_INFO_REMOVE to play.cbPlayerInfoRemove,
                 PacketKey.CB_START_CONFIGURATION to play.cbStartConfiguration,
                 PacketKey.CB_RESPAWN to play.cbRespawn,
                 PacketKey.CB_UPDATE_HEALTH to play.cbUpdateHealth,
@@ -179,6 +183,8 @@ object PaletteRegistry {
         val cbDeclareCommands: Int,
         val cbSystemChat: Int,
         val cbPlayerChat: Int,
+        val cbPlayerInfoUpdate: Int,
+        val cbPlayerInfoRemove: Int,
         val cbJoinGame: Int,
         val cbStartConfiguration: Int,
         val cbRespawn: Int,
@@ -194,19 +200,21 @@ object PaletteRegistry {
             sbKeepAlive = 0x1C,
             sbChatSessionUpdate = 0x0A,
             sbAcknowledgeConfiguration = 0x10,
-            sbClientCommand = 0x0C,      // 773 段 0x0B 统一 +1（26.x 全表偏移）
+            sbClientCommand = 0x0C,
             cbDisconnect = 0x20,
             cbKeepAlive = 0x2C,
             cbCommandSuggestions = 0x0F,
             cbDeclareCommands = 0x10,
             cbSystemChat = 0x79,
             cbPlayerChat = 0x41,
+            cbPlayerInfoUpdate = 0x46,
+            cbPlayerInfoRemove = 0x45,
             cbJoinGame = 0x31,
             cbStartConfiguration = 0x76,
-            cbRespawn = 0x52,            // 26.1/26.2（MCC Palette261 权威）
-            cbUpdateHealth = 0x68,       // 26.1/26.2（MCC Palette261 权威）
+            cbRespawn = 0x52,
+            cbUpdateHealth = 0x68,
         )
-        // 773–774：1.21.9 / 1.21.10 / 1.21.11（MCC Palette1219）
+        // 773–774：1.21.9 / 1.21.10 / 1.21.11
         protocol >= 773 -> PlayChatIds(
             sbChatMessage = 0x08,
             sbChatCommand = 0x07,
@@ -214,19 +222,21 @@ object PaletteRegistry {
             sbKeepAlive = 0x1B,
             sbChatSessionUpdate = 0x09,
             sbAcknowledgeConfiguration = 0x0F,
-            sbClientCommand = 0x0B,      // 1.21.9–1.21.11（minecraft-data 核实）
+            sbClientCommand = 0x0B,
             cbDisconnect = 0x20,
             cbKeepAlive = 0x2B,
             cbCommandSuggestions = 0x0F,
             cbDeclareCommands = 0x10,
             cbSystemChat = 0x77,
             cbPlayerChat = 0x3F,
+            cbPlayerInfoUpdate = 0x44,
+            cbPlayerInfoRemove = 0x43,
             cbJoinGame = 0x30,
             cbStartConfiguration = 0x74,
-            cbRespawn = 0x50,            // 1.21.9–1.21.11（minecraft-data 核实）
-            cbUpdateHealth = 0x66,       // 1.21.9–1.21.11（minecraft-data 核实）
+            cbRespawn = 0x50,
+            cbUpdateHealth = 0x66,
         )
-        // 771–772：1.21.6 / 1.21.7 / 1.21.8（MCC Palette1216）
+        // 771–772：1.21.6 / 1.21.7 / 1.21.8
         protocol >= 771 -> PlayChatIds(
             sbChatMessage = 0x08,
             sbChatCommand = 0x07,
@@ -234,19 +244,21 @@ object PaletteRegistry {
             sbKeepAlive = 0x1B,
             sbChatSessionUpdate = 0x09,
             sbAcknowledgeConfiguration = 0x0F,
-            sbClientCommand = 0x0B,      // 1.21.6–1.21.8（minecraft-data 核实）
+            sbClientCommand = 0x0B,
             cbDisconnect = 0x1C,
             cbKeepAlive = 0x26,
             cbCommandSuggestions = 0x0F,
             cbDeclareCommands = 0x10,
             cbSystemChat = 0x72,
             cbPlayerChat = 0x3A,
+            cbPlayerInfoUpdate = 0x3F,
+            cbPlayerInfoRemove = 0x3E,
             cbJoinGame = 0x2B,
             cbStartConfiguration = 0x6F,
-            cbRespawn = 0x4B,            // 1.21.6–1.21.8（minecraft-data 核实）
-            cbUpdateHealth = 0x61,       // 1.21.6–1.21.8（minecraft-data 核实）
+            cbRespawn = 0x4B,
+            cbUpdateHealth = 0x61,
         )
-        // 770：1.21.5（MCC Palette1215）
+        // 770：1.21.5
         protocol >= 770 -> PlayChatIds(
             sbChatMessage = 0x07,
             sbChatCommand = 0x06,
@@ -254,19 +266,21 @@ object PaletteRegistry {
             sbKeepAlive = 0x1A,
             sbChatSessionUpdate = 0x08,
             sbAcknowledgeConfiguration = 0x0E,
-            sbClientCommand = 0x0A,      // 1.21.5（minecraft-data 核实）
+            sbClientCommand = 0x0A,
             cbDisconnect = 0x1C,
             cbKeepAlive = 0x26,
             cbCommandSuggestions = 0x0F,
             cbDeclareCommands = 0x10,
             cbSystemChat = 0x72,
             cbPlayerChat = 0x3A,
+            cbPlayerInfoUpdate = 0x3F,
+            cbPlayerInfoRemove = 0x3E,
             cbJoinGame = 0x2B,
             cbStartConfiguration = 0x6F,
-            cbRespawn = 0x4B,            // 1.21.5（minecraft-data 核实）
-            cbUpdateHealth = 0x61,       // 1.21.5（minecraft-data 核实）
+            cbRespawn = 0x4B,
+            cbUpdateHealth = 0x61,
         )
-        // 768–769：1.21.2 / 1.21.3 / 1.21.4（MCC Palette1212 与 Palette1214，聊天链路 id 一致）
+        // 768–769：1.21.2 / 1.21.3 / 1.21.4
         protocol >= 768 -> PlayChatIds(
             sbChatMessage = 0x07,
             sbChatCommand = 0x06,
@@ -274,21 +288,21 @@ object PaletteRegistry {
             sbKeepAlive = 0x1A,
             sbChatSessionUpdate = 0x08,
             sbAcknowledgeConfiguration = 0x0E,
-            sbClientCommand = 0x0A,      // 1.21.2–1.21.4（minecraft-data 核实）
+            sbClientCommand = 0x0A,
             cbDisconnect = 0x1D,
             cbKeepAlive = 0x27,
             cbCommandSuggestions = 0x10,
             cbDeclareCommands = 0x11,
             cbSystemChat = 0x73,
             cbPlayerChat = 0x3B,
+            cbPlayerInfoUpdate = 0x40,
+            cbPlayerInfoRemove = 0x3F,
             cbJoinGame = 0x2C,
             cbStartConfiguration = 0x70,
-            cbRespawn = 0x4C,            // 1.21.2–1.21.4（minecraft-data 核实）
-            cbUpdateHealth = 0x62,       // 1.21.2–1.21.4（minecraft-data 核实）
+            cbRespawn = 0x4C,
+            cbUpdateHealth = 0x62,
         )
-        // 767：1.21 / 1.21.1（MCC Palette121）。
-        // 注意：764–766（1.20.2/1.20.3/1.20.5/1.20.6，MCC Palette1202/1204/1206）也会落到此分支，
-        // 但其 play id 与 767 不同，未逐版校准；本项目当前只面向 1.21+，如需支持需另行补段。
+        // 767：1.21 / 1.21.1
         else -> PlayChatIds(
             sbChatMessage = 0x06,
             sbChatCommand = 0x05,
@@ -296,17 +310,19 @@ object PaletteRegistry {
             sbKeepAlive = 0x18,
             sbChatSessionUpdate = 0x07,
             sbAcknowledgeConfiguration = 0x0C,
-            sbClientCommand = 0x09,      // 1.21/1.21.1（minecraft-data 核实）
+            sbClientCommand = 0x09,
             cbDisconnect = 0x1D,
             cbKeepAlive = 0x26,
             cbCommandSuggestions = 0x10,
             cbDeclareCommands = 0x11,
             cbSystemChat = 0x6C,
             cbPlayerChat = 0x39,
+            cbPlayerInfoUpdate = 0x3E,
+            cbPlayerInfoRemove = 0x3D,
             cbJoinGame = 0x2B,
             cbStartConfiguration = 0x69,
-            cbRespawn = 0x47,            // 1.21/1.21.1（minecraft-data 核实）
-            cbUpdateHealth = 0x5D,       // 1.21/1.21.1（minecraft-data 核实）
+            cbRespawn = 0x47,
+            cbUpdateHealth = 0x5D,
         )
     }
 
@@ -317,9 +333,9 @@ object PaletteRegistry {
     private fun legacy(protocol: Int): PacketPalette = PacketPalette(
         protocol = protocol,
         hasConfigPhase = false,
-        chatComponentIsNbt = false,          // 老版本聊天组件是 JSON 字符串
-        sessionSigning = protocol >= 761,    // legacy 上限 763，1.19.3 也走 session
-        chatHasChecksum = false,             // legacy 上限 763 < 770，无 checksum
+        chatComponentIsNbt = false,
+        sessionSigning = protocol >= 761,
+        chatHasChecksum = false,
         sbMap = mapOf(
             PacketKey.SB_LOGIN_START to 0x00,
             PacketKey.SB_ENCRYPTION_RESPONSE to 0x01,

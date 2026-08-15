@@ -14,7 +14,9 @@ data class ChatEvent(
     val rawJson: String,        // 原始 JSON/NBT 文本组件（需要富文本时用）
     val sender: String? = null, // 玩家消息的发送者名（系统消息为 null）
     val timestamp: Long = System.currentTimeMillis(),
-    val spans: List<ChatSpan> = emptyList()  // 富文本片段（UI 上色用）；空表示按 plainText 纯色显示
+    val spans: List<ChatSpan> = emptyList(),  // 富文本片段（UI 上色用）；空表示按 plainText 纯色显示
+    /** 非空表示私聊对象玩家名；公屏应隐藏，只进对应私聊页。 */
+    val dmPeer: String? = null
 )
 
 /**

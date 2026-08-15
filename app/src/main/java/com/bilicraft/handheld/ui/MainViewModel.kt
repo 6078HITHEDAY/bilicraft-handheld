@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bilicraft.handheld.AppContainer
@@ -14,9 +15,12 @@ import com.bilicraft.handheld.appicon.AppIcon
 import com.bilicraft.handheld.appicon.AppIconCatalog
 import com.bilicraft.handheld.auth.AccountSummary
 import com.bilicraft.handheld.auth.AuthState
+import com.bilicraft.handheld.chat.looksLikeDmPlain
+import com.bilicraft.handheld.chat.resolveDmPeer
+import com.bilicraft.handheld.chat.stripDmWrapper
 import com.bilicraft.handheld.config.PluginPanelLayout
-import com.bilicraft.handheld.config.QuickToolLink
 import com.bilicraft.handheld.config.ServerConfig
+import com.bilicraft.handheld.config.ServerContact
 import com.bilicraft.handheld.config.ThemeMode
 import com.bilicraft.handheld.config.UiPreferences
 import com.bilicraft.handheld.externalplugin.ExternalPluginEntry
@@ -28,12 +32,18 @@ import com.bilicraft.handheld.protocol.ChatSigningMode
 import com.bilicraft.handheld.protocol.CommandSuggestionState
 import com.bilicraft.handheld.protocol.CommandSuggestions
 import com.bilicraft.handheld.protocol.ConnectionState
+import com.bilicraft.handheld.protocol.RosterEvent
+import com.bilicraft.handheld.protocol.RosterPlayer
+import com.bilicraft.handheld.protocol.ServerAddress
+import com.bilicraft.handheld.protocol.ServerPinger
+import com.bilicraft.handheld.server.ServerFavicon
 import com.bilicraft.handheld.service.ConnectionService
 import com.bilicraft.handheld.session.SessionEvent
 import com.bilicraft.handheld.update.DownloadSource
 import com.bilicraft.handheld.update.ReleaseInfo
 import com.bilicraft.handheld.update.UpdateState
 import java.io.File
+import java.util.UUID
 import com.bilicraft.handheld.version.McVersion
 import com.bilicraft.handheld.version.VersionRepository
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +62,9 @@ import kotlinx.coroutines.withContext
 data class ServerRuntimeUiState(
     val activeServerId: String? = null,
     val connectionStates: Map<String, ConnectionState> = emptyMap(),
-    val chatLogs: Map<String, List<ChatEvent>> = emptyMap()
+    val chatLogs: Map<String, List<ChatEvent>> = emptyMap(),
+    /** 每服 Tab 名单：在线玩家；离开后仍可留在 contacts 里标灰 */
+    val rosters: Map<String, List<RosterPlayer>> = emptyMap()
 )
 
 data class ActiveExternalPluginPanel(
@@ -60,11 +72,18 @@ data class ActiveExternalPluginPanel(
     val entrypointId: String
 )
 
+data class ChannelPingUi(
+    val faviconPng: ByteArray? = null,
+    val onlinePlayers: Int = -1,
+    val maxPlayers: Int = -1,
+    val motd: String = ""
+)
+
 /**
  * UI 状态聚合层。
  *
  * 依赖现有逻辑：登录、Token 刷新、连接、聊天、插件生命周期仍由既有模块负责。
- * 纯 UI 补足：服务器配置与快捷工具通过 UiConfigRepository 保存为应用私有 JSON。
+ * 纯 UI 补足：服务器配置与联系人通过 UiConfigRepository 保存为应用私有 JSON。
  * 这个 ViewModel 不计算 Token、不解析协议、不直接操作加密存储。
  */
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -83,7 +102,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val updateState: StateFlow<UpdateState> = updateManager.state
     val accounts: StateFlow<List<AccountSummary>> = auth.accounts
     val servers: StateFlow<List<ServerConfig>> = uiConfigRepo.servers
-    val quickTools: StateFlow<List<QuickToolLink>> = uiConfigRepo.tools
+    val contacts: StateFlow<List<ServerContact>> = uiConfigRepo.contacts
     val preferences: StateFlow<UiPreferences> = uiConfigRepo.preferences
     val externalPlugins: StateFlow<List<ExternalPluginEntry>> = externalPluginManager.entries
     val externalPluginEntrypoints: StateFlow<List<ExternalPluginEntrypoint>> = externalPluginManager.entrypoints
@@ -92,6 +111,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _serverRuntime = MutableStateFlow(ServerRuntimeUiState())
     val serverRuntime: StateFlow<ServerRuntimeUiState> = _serverRuntime.asStateFlow()
+
+    private val _channelPings = MutableStateFlow<Map<String, ChannelPingUi>>(emptyMap())
+    val channelPings: StateFlow<Map<String, ChannelPingUi>> = _channelPings.asStateFlow()
 
     private val _commandSuggestions = MutableStateFlow(CommandSuggestions.Empty)
     val commandSuggestions: StateFlow<CommandSuggestionState> = _commandSuggestions.asStateFlow()
@@ -125,6 +147,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val ignoringBatteryOptimizations: StateFlow<Boolean> = _ignoringBatteryOptimizations.asStateFlow()
 
     private var loginJob: Job? = null
+
+    /** 每个服务器最近一次私聊对象（Bilicraft `messages you:` 不含对方名时用）。 */
+    private val lastDmPeerByServer = mutableMapOf<String, String>()
 
     val currentAccountName: String
         get() = auth.currentSession()?.mcUsername ?: "未登录"
@@ -175,6 +200,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when (event) {
                 is SessionEvent.State -> markServerState(serverId, event.state)
                 is SessionEvent.Chat -> appendServerChat(serverId, event.event)
+                is SessionEvent.Roster -> applyRosterEvent(serverId, event.event)
             }
         }
     }
@@ -186,11 +212,115 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun appendServerChat(serverId: String, event: ChatEvent) {
+        val self = currentAccountName
+        val fallback = lastDmPeerByServer[serverId]
+        val peer = event.dmPeer?.trim()?.takeIf { it.isNotEmpty() }
+            ?: resolveDmPeer(event.plainText, event.sender, self, fallback)
+            ?: if (looksLikeDmPlain(event.plainText)) fallback else null
+        val tagged = when {
+            peer != null && event.dmPeer == null -> event.copy(
+                dmPeer = peer,
+                // messages you: 常无 sender，用 peer 方便气泡显示对方头像/名字
+                sender = event.sender ?: peer
+            )
+            else -> event
+        }
+        if (peer != null) {
+            lastDmPeerByServer[serverId] = peer
+        }
+
         _serverRuntime.update { current ->
             val currentLog = current.chatLogs[serverId].orEmpty()
+            if (peer != null && isDuplicateDm(currentLog, tagged, peer)) {
+                return@update current
+            }
             current.copy(
-                chatLogs = current.chatLogs + (serverId to (currentLog + event).takeLast(MAX_UI_LOG))
+                chatLogs = current.chatLogs + (serverId to (currentLog + tagged).takeLast(MAX_UI_LOG))
             )
+        }
+        val contactName = peer
+            ?: tagged.sender?.trim()?.takeIf { it.isNotEmpty() }
+            ?: ANGLE_SENDER.find(tagged.plainText)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return
+        if (contactName.equals(self, ignoreCase = true)) return
+        viewModelScope.launch { ensureContact(serverId, contactName) }
+    }
+
+    private fun isDuplicateDm(log: List<ChatEvent>, incoming: ChatEvent, peer: String): Boolean {
+        val body = stripDmWrapper(incoming.plainText, peer, currentAccountName).trim()
+        if (body.isEmpty()) return false
+        val now = incoming.timestamp
+        return log.takeLast(8).any { prev ->
+            val prevPeer = prev.dmPeer ?: return@any false
+            if (!prevPeer.equals(peer, ignoreCase = true)) return@any false
+            if (kotlin.math.abs(now - prev.timestamp) > 4_000L) return@any false
+            val prevBody = stripDmWrapper(prev.plainText, peer, currentAccountName).trim()
+            prevBody.equals(body, ignoreCase = true)
+        }
+    }
+
+    private fun applyRosterEvent(serverId: String, event: RosterEvent) {
+        when (event) {
+            is RosterEvent.Upsert -> {
+                _serverRuntime.update { current ->
+                    val existing = current.rosters[serverId].orEmpty().associateBy { it.uuid }.toMutableMap()
+                    event.players.forEach { player ->
+                        if (player.name.isBlank()) {
+                            val prev = existing[player.uuid] ?: return@forEach
+                            existing[player.uuid] = prev.copy(
+                                online = true,
+                                latencyMs = if (player.latencyMs >= 0) player.latencyMs else prev.latencyMs
+                            )
+                        } else {
+                            existing[player.uuid] = player
+                        }
+                    }
+                    current.copy(rosters = current.rosters + (serverId to existing.values.sortedBy { it.name.lowercase() }))
+                }
+                event.players.forEach { player ->
+                    if (player.name.isNotBlank()) {
+                        viewModelScope.launch { ensureContact(serverId, player.name, player.uuid) }
+                    }
+                }
+            }
+            is RosterEvent.Remove -> {
+                _serverRuntime.update { current ->
+                    val next = current.rosters[serverId].orEmpty().map { p ->
+                        if (p.uuid in event.uuids) p.copy(online = false) else p
+                    }
+                    current.copy(rosters = current.rosters + (serverId to next))
+                }
+            }
+            RosterEvent.Clear -> {
+                _serverRuntime.update { current ->
+                    val next = current.rosters[serverId].orEmpty().map { it.copy(online = false) }
+                    current.copy(rosters = current.rosters + (serverId to next))
+                }
+            }
+        }
+    }
+
+    private suspend fun ensureContact(serverId: String, playerName: String, uuid: String? = null): ServerContact? {
+        val name = playerName.trim()
+        if (name.isEmpty()) return null
+        val existing = uiConfigRepo.contacts.value.firstOrNull {
+            it.serverId == serverId && it.playerName.equals(name, ignoreCase = true)
+        }
+        if (existing != null) return existing
+        val created = ServerContact(
+            id = uuid ?: UUID.randomUUID().toString(),
+            serverId = serverId,
+            playerName = name,
+            note = ""
+        )
+        uiConfigRepo.upsertContact(created)
+        return created
+    }
+
+    /** 从 Tab 名单/群成员点进私聊：自动建联系人，无需手动输入。 */
+    fun openAutoContact(serverId: String, playerName: String, uuid: String? = null, onReady: (ServerContact) -> Unit) {
+        viewModelScope.launch {
+            ensureContact(serverId, playerName, uuid)?.let(onReady)
         }
     }
 
@@ -379,6 +509,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     chatLogs = current.chatLogs - id
                 )
             }
+            _channelPings.update { it - id }
             _uiMessage.value = "服务器配置已删除"
         }
     }
@@ -441,6 +572,47 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sendChat(serverId: String, text: String) {
         if (text.isBlank() || _serverRuntime.value.activeServerId != serverId) return
+        val trimmed = text.trim()
+        // 公屏里直接敲 /msg 也走私聊分流，避免刷进频道
+        val dmPeer = resolveDmPeer(trimmed, null, currentAccountName)
+        if (dmPeer != null && trimmed.startsWith("/")) {
+            sendDirectMessage(serverId, dmPeer, stripDmWrapper(trimmed, dmPeer, currentAccountName))
+            return
+        }
+        dispatchChat(serverId, text)
+    }
+
+    /** 私聊：本地立刻记入私聊线程，再发 /msg；公屏不会显示。 */
+    fun sendDirectMessage(serverId: String, playerName: String, text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        val peer = playerName.trim()
+        if (peer.isEmpty()) return
+        lastDmPeerByServer[serverId] = peer
+        val body = if (trimmed.startsWith("/")) {
+            resolveDmPeer(trimmed, null, currentAccountName)
+                ?.let { stripDmWrapper(trimmed, it, currentAccountName) }
+                ?: trimmed
+        } else {
+            trimmed
+        }
+        val self = currentAccountName.takeIf { it.isNotBlank() && it != "未登录" }
+        appendServerChat(
+            serverId,
+            ChatEvent(
+                plainText = body,
+                rawJson = body,
+                sender = self,
+                dmPeer = peer
+            )
+        )
+        val payload = if (trimmed.startsWith("/")) trimmed else "/msg $peer $trimmed"
+        dispatchChat(serverId, payload)
+        viewModelScope.launch { ensureContact(serverId, peer) }
+    }
+
+    private fun dispatchChat(serverId: String, text: String) {
+        if (_serverRuntime.value.activeServerId != serverId) return
         _commandSuggestions.value = CommandSuggestions.Empty
         session.sendChat(text)
     }
@@ -468,33 +640,54 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         session.requestCommandSuggestions(input)
     }
 
-    fun createTool(title: String, url: String, description: String = "") {
-        if (title.isBlank() || url.isBlank()) {
-            _uiMessage.value = "名称和链接不能为空"
+    fun setPrimaryContactServerId(serverId: String) {
+        viewModelScope.launch { uiConfigRepo.setPrimaryContactServerId(serverId) }
+    }
+
+    fun createContact(serverId: String, playerName: String, note: String = "") {
+        if (playerName.isBlank()) {
+            _uiMessage.value = "玩家名不能为空"
             return
         }
         viewModelScope.launch {
-            uiConfigRepo.upsertTool(uiConfigRepo.newTool(title.trim(), url.trim(), description.trim()))
-            _uiMessage.value = "快捷工具已保存"
+            uiConfigRepo.upsertContact(uiConfigRepo.newContact(serverId, playerName, note))
+            _uiMessage.value = "联系人已保存"
         }
     }
 
-    fun saveTool(link: QuickToolLink) {
+    fun saveContact(contact: ServerContact) {
+        if (contact.playerName.isBlank()) {
+            _uiMessage.value = "玩家名不能为空"
+            return
+        }
         viewModelScope.launch {
-            uiConfigRepo.upsertTool(link)
-            _uiMessage.value = "快捷工具已保存"
+            uiConfigRepo.upsertContact(contact.copy(playerName = contact.playerName.trim(), note = contact.note.trim()))
+            _uiMessage.value = "联系人已保存"
         }
     }
 
-    fun deleteTool(id: String) {
+    fun deleteContact(id: String) {
         viewModelScope.launch {
-            uiConfigRepo.deleteTool(id)
-            _uiMessage.value = "快捷工具已删除"
+            uiConfigRepo.deleteContact(id)
+            _uiMessage.value = "联系人已删除"
         }
     }
 
-    fun moveTool(fromIndex: Int, toIndex: Int) {
-        viewModelScope.launch { uiConfigRepo.moveTool(fromIndex, toIndex) }
+    fun refreshChannelPing(server: ServerConfig) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val status = ServerPinger().ping(ServerAddress(server.host, server.port)).getOrNull() ?: return@launch
+            val png = ServerFavicon.decodePng(status.favicon) { payload ->
+                Base64.decode(payload, Base64.DEFAULT)
+            }
+            _channelPings.update { current ->
+                current + (server.id to ChannelPingUi(
+                    faviconPng = png,
+                    onlinePlayers = status.onlinePlayers,
+                    maxPlayers = status.maxPlayers,
+                    motd = status.description
+                ))
+            }
+        }
     }
 
     fun addAccount() {
@@ -694,5 +887,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val MAX_UI_LOG = 500
+        val ANGLE_SENDER = Regex("""^<([^>\n]{1,32})>\s?(.*)$""", RegexOption.DOT_MATCHES_ALL)
     }
 }

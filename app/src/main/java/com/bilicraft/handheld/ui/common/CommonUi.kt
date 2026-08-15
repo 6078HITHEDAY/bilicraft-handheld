@@ -66,8 +66,8 @@ internal fun SectionTitle(text: String) {
 internal fun EmptyState(
     title: String,
     message: String,
-    actionText: String,
-    onAction: () -> Unit
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null
 ) {
     Column(
         Modifier.fillMaxSize().padding(24.dp),
@@ -77,8 +77,10 @@ internal fun EmptyState(
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(20.dp))
-        Button(onClick = onAction) { Text(actionText) }
+        if (actionText != null && onAction != null) {
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onAction) { Text(actionText) }
+        }
     }
 }
 

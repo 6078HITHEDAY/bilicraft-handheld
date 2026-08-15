@@ -10,6 +10,7 @@ import com.bilicraft.handheld.protocol.CommandSuggestions
 import com.bilicraft.handheld.protocol.ConnectionState
 import com.bilicraft.handheld.protocol.MinecraftClient
 import com.bilicraft.handheld.protocol.PaletteRegistry
+import com.bilicraft.handheld.protocol.RosterEvent
 import com.bilicraft.handheld.protocol.ServerAddress
 import com.bilicraft.handheld.protocol.ServerPinger
 import com.bilicraft.handheld.storage.AuthSession
@@ -42,6 +43,11 @@ sealed interface SessionEvent {
     data class Chat(
         override val serverId: String?,
         val event: ChatEvent
+    ) : SessionEvent
+
+    data class Roster(
+        override val serverId: String?,
+        val event: RosterEvent
     ) : SessionEvent
 }
 
@@ -257,6 +263,12 @@ class SessionController(
                     _commandSuggestions.value = suggestions
                 }
             }
+            launch {
+                mc.roster.collect { ev ->
+                    if (!request.isCurrent()) return@collect
+                    _events.tryEmit(SessionEvent.Roster(request.serverId, ev))
+                }
+            }
         }
         mc.connect(addr)
     }
@@ -281,16 +293,17 @@ class SessionController(
                 publishSystem(request, "已连接到服务器")
             }
             is ConnectionState.Failed -> {
+                _events.tryEmit(SessionEvent.Roster(request.serverId, RosterEvent.Clear))
                 publishSystem(request, "连接失败：${state.reason}")
                 if (state.retriable) scheduleReconnect(request, attempt)
                 else {
                     reconnectAllowed = false
                     reconnectJob?.cancel()
-                    // 不可重试：清掉目标，避免网络回调/进程重建继续拉起连接
                     abandonRequest(request)
                 }
             }
             is ConnectionState.Disconnected -> {
+                _events.tryEmit(SessionEvent.Roster(request.serverId, RosterEvent.Clear))
                 if (reconnectAllowed) scheduleReconnect(request, attempt)
             }
             else -> Unit
