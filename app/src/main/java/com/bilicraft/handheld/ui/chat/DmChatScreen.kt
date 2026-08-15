@@ -100,12 +100,15 @@ internal fun DmChatScreen(
             log = dmLog,
             selfName = selfName,
             autoScroll = preferences.chatAutoScroll,
+            fontScale = preferences.chatFontScale,
+            quickReplies = preferences.quickReplies,
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
         ChatComposer(
             connected = connected,
             commandCompletionEnabled = preferences.commandCompletionEnabled,
             commandSuggestions = commandSuggestions,
+            quickReplies = preferences.quickReplies,
             onSend = { vm.sendDirectMessage(server.id, contact.playerName, it) },
             onRequestCommandSuggestions = { vm.requestCommandSuggestions(server.id, it) },
             placeholder = "私聊 ${contact.playerName}…"

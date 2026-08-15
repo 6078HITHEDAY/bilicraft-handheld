@@ -62,7 +62,7 @@ import kotlin.system.exitProcess
 @Composable
 internal fun ChatChannelsScreen(
     vm: MainViewModel,
-    onDetailOpen: (Boolean) -> Unit = {}
+    onOpenChannel: (String) -> Unit
 ) {
     val runtime by vm.serverRuntime.collectAsStateWithLifecycle()
     val servers by vm.servers.collectAsStateWithLifecycle()
@@ -70,9 +70,9 @@ internal fun ChatChannelsScreen(
     val selectedVersion by vm.selectedVersion.collectAsStateWithLifecycle()
     val forceSigning by vm.forceSigning.collectAsStateWithLifecycle()
     val pings by vm.channelPings.collectAsStateWithLifecycle()
+    val preferences by vm.preferences.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    var openServerId by remember { mutableStateOf<String?>(null) }
     var editingServer by remember { mutableStateOf<ServerConfig?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
@@ -82,17 +82,12 @@ internal fun ChatChannelsScreen(
         servers.forEach { vm.refreshChannelPing(it) }
     }
 
-    val openServer = servers.firstOrNull { it.id == openServerId }
-    LaunchedEffect(openServer != null) {
-        onDetailOpen(openServer != null)
-    }
-    if (openServer != null) {
-        ChannelChatScreen(
-            vm = vm,
-            server = openServer,
-            onBack = { openServerId = null }
-        )
-        return
+    val orderedServers = remember(servers, preferences.pinnedChannelIds, preferences.archivedChannelIds) {
+        val pinned = preferences.pinnedChannelIds.toSet()
+        val archived = preferences.archivedChannelIds.toSet()
+        val active = servers.filter { it.id !in archived }
+        val archivedList = servers.filter { it.id in archived }
+        active.sortedByDescending { it.id in pinned } + archivedList
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -123,15 +118,23 @@ internal fun ChatChannelsScreen(
             )
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
-                items(servers, key = { it.id }) { server ->
+                items(orderedServers, key = { it.id }) { server ->
                     val conn = runtime.connectionStates[server.id] ?: ConnectionState.Disconnected
                     val last = runtime.chatLogs[server.id]?.lastOrNull()
+                    val unread = vm.unreadCount(server.id)
+                    val pinned = server.id in preferences.pinnedChannelIds
                     ChannelRow(
                         server = server,
                         conn = conn,
                         preview = last?.plainText.orEmpty(),
                         ping = pings[server.id],
-                        onClick = { openServerId = server.id },
+                        unread = unread,
+                        pinned = pinned,
+                        archived = server.id in preferences.archivedChannelIds,
+                        onClick = {
+                            vm.markChannelRead(server.id)
+                            onOpenChannel(server.id)
+                        },
                         onLongClick = { menuServer = server }
                     )
                     HorizontalDivider()
@@ -158,23 +161,17 @@ internal fun ChatChannelsScreen(
     }
 
     if (showExitConfirm) {
-        AlertDialog(
-            onDismissRequest = { showExitConfirm = false },
-            title = { Text("退出应用") },
-            text = { Text("将断开连接并完全退出，不会保留后台。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showExitConfirm = false
-                        vm.prepareFullExit()
-                        (context as? Activity)?.finishAndRemoveTask()
-                        exitProcess(0)
-                    }
-                ) { Text("退出") }
+        com.bilicraft.handheld.ui.common.ConfirmDialog(
+            title = "退出应用",
+            message = "将断开连接并完全退出，不会保留后台。",
+            confirmText = "退出",
+            onConfirm = {
+                showExitConfirm = false
+                vm.prepareFullExit()
+                (context as? Activity)?.finishAndRemoveTask()
+                exitProcess(0)
             },
-            dismissButton = {
-                TextButton(onClick = { showExitConfirm = false }) { Text("取消") }
-            }
+            onDismiss = { showExitConfirm = false }
         )
     }
 
@@ -205,19 +202,43 @@ internal fun ChatChannelsScreen(
     }
 
     menuServer?.let { server ->
+        val pinned = server.id in preferences.pinnedChannelIds
+        val archived = server.id in preferences.archivedChannelIds
         AlertDialog(
             onDismissRequest = { menuServer = null },
             icon = { Icon(Icons.Default.Settings, contentDescription = null) },
             title = { Text(server.name) },
-            text = { Text("编辑或删除该频道。删除只影响本地配置。") },
-            confirmButton = {
-                TextButton(onClick = { editingServer = server; menuServer = null }) { Text("编辑") }
-            },
-            dismissButton = {
-                Row {
+            text = {
+                Column {
+                    TextButton(onClick = {
+                        vm.togglePinnedChannel(server.id)
+                        menuServer = null
+                    }) { Text(if (pinned) "取消置顶" else "置顶") }
+                    TextButton(onClick = {
+                        vm.toggleArchivedChannel(server.id)
+                        menuServer = null
+                    }) { Text(if (archived) "取消归档" else "归档") }
+                    TextButton(onClick = {
+                        vm.clearChannelChat(server.id)
+                        menuServer = null
+                    }) { Text("清空聊天") }
+                    TextButton(onClick = {
+                        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                            as android.content.ClipboardManager
+                        cm.setPrimaryClip(
+                            android.content.ClipData.newPlainText(
+                                "server",
+                                "${server.host}:${server.port}"
+                            )
+                        )
+                        menuServer = null
+                    }) { Text("复制地址") }
+                    TextButton(onClick = { editingServer = server; menuServer = null }) { Text("编辑") }
                     TextButton(onClick = { vm.deleteServer(server.id); menuServer = null }) { Text("删除") }
-                    TextButton(onClick = { menuServer = null }) { Text("取消") }
                 }
+            },
+            confirmButton = {
+                TextButton(onClick = { menuServer = null }) { Text("关闭") }
             }
         )
     }
@@ -230,6 +251,9 @@ private fun ChannelRow(
     conn: ConnectionState,
     preview: String,
     ping: ChannelPingUi?,
+    unread: Int,
+    pinned: Boolean,
+    archived: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -244,14 +268,29 @@ private fun ChannelRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (pinned) {
+                    Text("📌 ", style = MaterialTheme.typography.labelSmall)
+                }
                 Text(
-                    server.name,
+                    server.name + if (archived) "（已归档）" else "",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                if (unread > 0) {
+                    Text(
+                        if (unread > 99) "99+" else unread.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.primary)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
                 StatusDot(conn)
             }
             Spacer(Modifier.height(2.dp))

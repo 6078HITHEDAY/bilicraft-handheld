@@ -57,6 +57,12 @@ enum class PluginPanelLayout {
 }
 
 @Serializable
+enum class NotificationTapBehavior {
+    OpenHome,
+    OpenChannel
+}
+
+@Serializable
 data class UiPreferences(
     val chatAutoScroll: Boolean = true,
     val commandCompletionEnabled: Boolean = true,
@@ -64,7 +70,16 @@ data class UiPreferences(
     val themeMode: ThemeMode = ThemeMode.System,
     val backgroundLowPowerEnabled: Boolean = false,
     val pluginPanelLayout: PluginPanelLayout = PluginPanelLayout.Top,
-    val primaryContactServerId: String? = null
+    val primaryContactServerId: String? = null,
+    val pinnedChannelIds: List<String> = emptyList(),
+    val archivedChannelIds: List<String> = emptyList(),
+    /** serverId → 上次已读消息时间戳 */
+    val lastReadTimestamps: Map<String, Long> = emptyMap(),
+    val chatFontScale: Float = 1f,
+    val maxUiLog: Int = 500,
+    val notificationTapBehavior: NotificationTapBehavior = NotificationTapBehavior.OpenChannel,
+    val quickReplies: List<String> = listOf("在的", "稍等", "收到", "好的"),
+    val contactsGroupByServer: Boolean = false
 )
 
 /**
@@ -143,6 +158,48 @@ class UiConfigRepository(context: Context) {
         val next = _preferences.value.copy(primaryContactServerId = serverId)
         _preferences.value = next
         saveValue(preferencesFile, next)
+    }
+
+    suspend fun updatePreferences(transform: (UiPreferences) -> UiPreferences) = withContext(Dispatchers.IO) {
+        val next = transform(_preferences.value)
+        _preferences.value = next
+        saveValue(preferencesFile, next)
+    }
+
+    suspend fun togglePinnedChannel(serverId: String) = updatePreferences { prefs ->
+        val pinned = prefs.pinnedChannelIds.toMutableList()
+        if (serverId in pinned) pinned.remove(serverId) else pinned.add(0, serverId)
+        prefs.copy(pinnedChannelIds = pinned)
+    }
+
+    suspend fun toggleArchivedChannel(serverId: String) = updatePreferences { prefs ->
+        val archived = prefs.archivedChannelIds.toMutableList()
+        if (serverId in archived) archived.remove(serverId) else archived.add(serverId)
+        prefs.copy(archivedChannelIds = archived)
+    }
+
+    suspend fun markChannelRead(serverId: String, timestamp: Long) = updatePreferences { prefs ->
+        prefs.copy(lastReadTimestamps = prefs.lastReadTimestamps + (serverId to timestamp))
+    }
+
+    suspend fun setChatFontScale(scale: Float) = updatePreferences {
+        it.copy(chatFontScale = scale.coerceIn(0.85f, 1.4f))
+    }
+
+    suspend fun setMaxUiLog(limit: Int) = updatePreferences {
+        it.copy(maxUiLog = limit.coerceIn(100, 5000))
+    }
+
+    suspend fun setNotificationTapBehavior(behavior: NotificationTapBehavior) = updatePreferences {
+        it.copy(notificationTapBehavior = behavior)
+    }
+
+    suspend fun setQuickReplies(replies: List<String>) = updatePreferences {
+        it.copy(quickReplies = replies)
+    }
+
+    suspend fun setContactsGroupByServer(enabled: Boolean) = updatePreferences {
+        it.copy(contactsGroupByServer = enabled)
     }
 
     suspend fun upsertServer(config: ServerConfig) = withContext(Dispatchers.IO) {

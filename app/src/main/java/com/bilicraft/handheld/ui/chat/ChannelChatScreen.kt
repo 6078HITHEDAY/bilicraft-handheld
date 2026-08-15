@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -76,7 +77,8 @@ private data class GroupMember(
 internal fun ChannelChatScreen(
     vm: MainViewModel,
     server: ServerConfig,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenDm: (ServerContact) -> Unit
 ) {
     val runtime by vm.serverRuntime.collectAsStateWithLifecycle()
     val preferences by vm.preferences.collectAsStateWithLifecycle()
@@ -87,12 +89,18 @@ internal fun ChannelChatScreen(
     var pluginMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf(false) }
     var showMembers by rememberSaveable { mutableStateOf(false) }
-    var dmContact by remember { mutableStateOf<ServerContact?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
 
     val conn = runtime.connectionStates[server.id] ?: ConnectionState.Disconnected
     val selfName = vm.currentAccountName
-    val log = remember(runtime.chatLogs[server.id], selfName) {
-        filterPublicChat(runtime.chatLogs[server.id].orEmpty(), selfName)
+    val log = remember(runtime.chatLogs[server.id], selfName, searchQuery) {
+        val base = filterPublicChat(runtime.chatLogs[server.id].orEmpty(), selfName)
+        if (searchQuery.isBlank()) base
+        else base.filter {
+            it.plainText.contains(searchQuery, ignoreCase = true) ||
+                it.sender.orEmpty().contains(searchQuery, ignoreCase = true)
+        }
     }
     val roster = runtime.rosters[server.id].orEmpty()
     val members = remember(roster, contacts, server.id) {
@@ -102,22 +110,7 @@ internal fun ChannelChatScreen(
     val connected = isActiveServer && conn is ConnectionState.Connected
     val connecting = isActiveServer && conn !is ConnectionState.Disconnected && conn !is ConnectionState.Failed
 
-    BackHandler(onBack = {
-        when {
-            dmContact != null -> dmContact = null
-            else -> onBack()
-        }
-    })
-
-    dmContact?.let { contact ->
-        DmChatScreen(
-            vm = vm,
-            server = server,
-            contact = contact,
-            onBack = { dmContact = null }
-        )
-        return
-    }
+    BackHandler(onBack = onBack)
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -130,8 +123,20 @@ internal fun ChannelChatScreen(
                 onBack = onBack,
                 onRespawn = vm::respawn,
                 onEdit = { editing = true },
-                onMembers = { showMembers = true }
+                onMembers = { showMembers = true },
+                onSearch = { showSearch = !showSearch }
             )
+            if (showSearch) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("搜索本频道消息") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+            }
             ChannelInfoBar(
                 server = server,
                 conn = conn,
@@ -145,7 +150,7 @@ internal fun ChannelChatScreen(
                 GroupMembersStrip(
                     members = members,
                     onOpen = { member ->
-                        vm.openAutoContact(server.id, member.name, member.uuid) { dmContact = it }
+                        vm.openAutoContact(server.id, member.name, member.uuid, onOpenDm)
                     }
                 )
             }
@@ -153,12 +158,19 @@ internal fun ChannelChatScreen(
                 log = log,
                 selfName = selfName,
                 autoScroll = preferences.chatAutoScroll,
+                fontScale = preferences.chatFontScale,
+                quickReplies = preferences.quickReplies,
+                onDeleteLocal = { event ->
+                    vm.removeLocalChatMessage(server.id, event.timestamp, event.plainText)
+                },
+                onForward = { text -> vm.sendChat(server.id, text) },
                 modifier = Modifier.weight(1f).fillMaxWidth()
             )
             ChatComposer(
                 connected = connected,
                 commandCompletionEnabled = preferences.commandCompletionEnabled,
                 commandSuggestions = commandSuggestions,
+                quickReplies = preferences.quickReplies,
                 onSend = { vm.sendChat(server.id, it) },
                 onRequestCommandSuggestions = { vm.requestCommandSuggestions(server.id, it) }
             )
@@ -200,7 +212,7 @@ internal fun ChannelChatScreen(
                             .fillMaxWidth()
                             .clickable {
                                 showMembers = false
-                                vm.openAutoContact(server.id, member.name, member.uuid) { dmContact = it }
+                                vm.openAutoContact(server.id, member.name, member.uuid, onOpenDm)
                             }
                             .padding(horizontal = 20.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -263,7 +275,7 @@ private fun GroupMembersStrip(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(horizontal = 4.dp)
     ) {
-        items(members.take(24), key = { "${it.uuid}|${it.name}" }) { member ->
+        items(members.take(com.bilicraft.handheld.ui.common.UiConstants.GROUP_MEMBERS_STRIP_LIMIT), key = { "${it.uuid}|${it.name}" }) { member ->
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
@@ -321,7 +333,8 @@ private fun ChannelTopBar(
     onBack: () -> Unit,
     onRespawn: () -> Unit,
     onEdit: () -> Unit,
-    onMembers: () -> Unit
+    onMembers: () -> Unit,
+    onSearch: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -353,6 +366,9 @@ private fun ChannelTopBar(
                 color = statusColor(conn),
                 maxLines = 1
             )
+        }
+        IconButton(onClick = onSearch) {
+            Icon(Icons.Default.Search, contentDescription = "搜索")
         }
         IconButton(onClick = onMembers) {
             Icon(Icons.Default.Group, contentDescription = "成员")

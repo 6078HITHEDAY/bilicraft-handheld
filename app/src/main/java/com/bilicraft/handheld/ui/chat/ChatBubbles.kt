@@ -1,14 +1,20 @@
 package com.bilicraft.handheld.ui.chat
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,16 +24,22 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,21 +52,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bilicraft.handheld.protocol.ChatEvent
 import com.bilicraft.handheld.protocol.CommandSuggestion
 import com.bilicraft.handheld.protocol.CommandSuggestionState
 import com.bilicraft.handheld.protocol.CommandSuggestions
+import com.bilicraft.handheld.ui.common.UiConstants
 import com.bilicraft.handheld.ui.common.toAnnotated
+import com.bilicraft.handheld.ui.theme.BilicraftSpacing
 import com.bilicraft.handheld.ui.theme.bubbleOtherColor
 import com.bilicraft.handheld.ui.theme.bubbleSelfColor
 import com.bilicraft.handheld.ui.theme.bubbleSystemColor
@@ -62,26 +78,35 @@ import com.bilicraft.handheld.ui.theme.bubbleTimestampColor
 import com.bilicraft.handheld.ui.theme.chatDefaultTextColor
 import com.bilicraft.handheld.ui.theme.chatSurfaceColor
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 
+private val MENTION_REGEX = Regex("""@([A-Za-z0-9_]{2,16})""")
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun BubbleChatLog(
     log: List<ChatEvent>,
     selfName: String,
     autoScroll: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fontScale: Float = 1f,
+    quickReplies: List<String> = emptyList(),
+    onDeleteLocal: ((ChatEvent) -> Unit)? = null,
+    onForward: ((String) -> Unit)? = null
 ) {
     val listState = rememberLazyListState()
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     var followLatestMessage by rememberSaveable { mutableStateOf(true) }
     var autoScrolling by remember { mutableStateOf(false) }
-    val maxBubbleWidth = (LocalConfiguration.current.screenWidthDp * 0.78f).dp
+    var menuItem by remember { mutableStateOf<ClassifiedChat?>(null) }
     val classified = remember(log, selfName) { log.map { classifyChat(it, selfName) } }
     val surface = chatSurfaceColor()
     val defaultText = chatDefaultTextColor()
+    val dayFmt = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
 
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -105,49 +130,158 @@ internal fun BubbleChatLog(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier
-            .background(surface)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        if (classified.isEmpty()) {
-            item {
-                Text(
-                    "还没有消息",
-                    color = defaultText.copy(alpha = 0.6f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
-                    textAlign = TextAlign.Center
-                )
+    BoxWithConstraints(modifier = modifier) {
+        val maxBubbleWidth = maxWidth * UiConstants.BUBBLE_WIDTH_FRACTION
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(surface)
+                    .padding(horizontal = 10.dp, vertical = BilicraftSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (classified.isEmpty()) {
+                    item {
+                        Text(
+                            "还没有消息",
+                            color = defaultText.copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.fillMaxWidth().padding(BilicraftSpacing.xl),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                itemsIndexed(
+                    items = classified,
+                    key = { index, c -> "${c.event.timestamp}|${c.senderLabel}|${c.bodyPlain}|$index" }
+                ) { index, item ->
+                    val day = dayFmt.format(Date(item.event.timestamp))
+                    val prevDay = classified.getOrNull(index - 1)?.let {
+                        dayFmt.format(Date(it.event.timestamp))
+                    }
+                    if (day != prevDay) {
+                        DateSeparator(dayLabel(item.event.timestamp))
+                    }
+                    AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
+                        ChatBubble(
+                            item = item,
+                            selfName = selfName,
+                            maxWidth = maxBubbleWidth,
+                            fontScale = fontScale,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(item.event.plainText))
+                                Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
+                            },
+                            onLongClick = { menuItem = item }
+                        )
+                    }
+                }
+            }
+            AnimatedVisibility(
+                visible = !followLatestMessage && classified.isNotEmpty(),
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = {
+                        followLatestMessage = true
+                        autoScrolling = true
+                    },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "跳到最新")
+                }
             }
         }
-        items(
-            items = classified,
-            key = { c -> "${c.event.timestamp}|${c.senderLabel}|${c.bodyPlain}|${System.identityHashCode(c.event)}" }
-        ) { item ->
-            ChatBubble(
-                item = item,
-                selfName = selfName,
-                maxWidth = maxBubbleWidth,
-                onCopy = {
-                    clipboardManager.setText(AnnotatedString(item.event.plainText))
-                    Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
-                }
-            )
+    }
+
+    LaunchedEffect(followLatestMessage, classified.size) {
+        if (followLatestMessage && autoScrolling && classified.isNotEmpty()) {
+            try {
+                listState.scrollToItem(classified.lastIndex)
+            } finally {
+                autoScrolling = false
+            }
         }
+    }
+
+    menuItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { menuItem = null },
+            title = { Text("消息操作") },
+            text = {
+                Column {
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(item.event.plainText))
+                        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                        menuItem = null
+                    }) { Text("复制") }
+                    if (onForward != null) {
+                        TextButton(onClick = {
+                            onForward(item.event.plainText)
+                            menuItem = null
+                        }) { Text("转发到当前频道") }
+                    }
+                    if (onDeleteLocal != null) {
+                        TextButton(onClick = {
+                            onDeleteLocal(item.event)
+                            menuItem = null
+                        }) { Text("删除本地") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { menuItem = null }) { Text("关闭") }
+            }
+        )
     }
 }
 
+@Composable
+private fun DateSeparator(label: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+        )
+    }
+}
+
+private fun dayLabel(timestamp: Long): String {
+    val cal = Calendar.getInstance()
+    val today = Calendar.getInstance()
+    cal.timeInMillis = timestamp
+    return when {
+        cal.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
+            cal.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR) -> "今天"
+        else -> SimpleDateFormat("M月d日", Locale.getDefault()).format(Date(timestamp))
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatBubble(
     item: ClassifiedChat,
     selfName: String,
     maxWidth: androidx.compose.ui.unit.Dp,
-    onCopy: () -> Unit
+    fontScale: Float,
+    onCopy: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     val defaultText = chatDefaultTextColor()
+    val bodyStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * fontScale).sp)
     when (item.kind) {
         BubbleKind.System -> {
             Box(
@@ -156,12 +290,12 @@ private fun ChatBubble(
                     .padding(horizontal = 28.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(bubbleSystemColor())
-                    .clickable(onClick = onCopy)
+                    .combinedClickable(onClick = onCopy, onLongClick = onLongClick)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = item.bodyPlain,
+                    text = highlightMentions(item.bodyPlain),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -186,15 +320,15 @@ private fun ChatBubble(
                         .widthIn(max = maxWidth)
                         .clip(
                             RoundedCornerShape(
-                                topStart = 16.dp,
-                                topEnd = 16.dp,
-                                bottomStart = if (self) 16.dp else 4.dp,
-                                bottomEnd = if (self) 4.dp else 16.dp
+                                topStart = BilicraftSpacing.bubbleRadius,
+                                topEnd = BilicraftSpacing.bubbleRadius,
+                                bottomStart = if (self) BilicraftSpacing.bubbleRadius else 4.dp,
+                                bottomEnd = if (self) 4.dp else BilicraftSpacing.bubbleRadius
                             )
                         )
                         .background(if (self) bubbleSelfColor() else bubbleOtherColor())
-                        .clickable(onClick = onCopy)
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .combinedClickable(onClick = onCopy, onLongClick = onLongClick)
+                        .padding(horizontal = 12.dp, vertical = BilicraftSpacing.sm)
                 ) {
                     if (!self) {
                         Text(
@@ -207,17 +341,18 @@ private fun ChatBubble(
                         )
                         Spacer(Modifier.height(2.dp))
                     }
+                    val textColor = if (self) MaterialTheme.colorScheme.onPrimaryContainer else defaultText
                     if (item.bodyPlain.isNotBlank()) {
                         Text(
-                            text = item.bodyPlain,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (self) MaterialTheme.colorScheme.onPrimaryContainer else defaultText
+                            text = highlightMentions(item.bodyPlain),
+                            style = bodyStyle,
+                            color = textColor
                         )
                     } else {
                         Text(
                             text = item.event.toAnnotated(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (self) MaterialTheme.colorScheme.onPrimaryContainer else defaultText
+                            style = bodyStyle,
+                            color = textColor
                         )
                     }
                     Text(
@@ -238,15 +373,33 @@ private fun ChatBubble(
 }
 
 @Composable
+private fun highlightMentions(text: String): AnnotatedString {
+    val mentionColor = MaterialTheme.colorScheme.tertiary
+    return buildAnnotatedString {
+        var last = 0
+        for (match in MENTION_REGEX.findAll(text)) {
+            append(text.substring(last, match.range.first))
+            withStyle(SpanStyle(color = mentionColor, fontWeight = FontWeight.SemiBold)) {
+                append(match.value)
+            }
+            last = match.range.last + 1
+        }
+        if (last < text.length) append(text.substring(last))
+    }
+}
+
+@Composable
 internal fun ChatComposer(
     connected: Boolean,
     commandCompletionEnabled: Boolean,
     commandSuggestions: CommandSuggestionState,
     onSend: (String) -> Unit,
     onRequestCommandSuggestions: (String) -> Unit,
-    placeholder: String = "发送消息…"
+    placeholder: String = "发送消息…",
+    quickReplies: List<String> = emptyList()
 ) {
     var input by remember { mutableStateOf(TextFieldValue("")) }
+    var showQuickReplies by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(input.text, connected, commandCompletionEnabled) {
         if (!connected || !commandCompletionEnabled || !input.text.startsWith("/")) {
@@ -258,6 +411,24 @@ internal fun ChatComposer(
     }
 
     Column(Modifier.fillMaxWidth()) {
+        if (showQuickReplies && quickReplies.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(quickReplies) { phrase ->
+                    AssistChip(
+                        onClick = {
+                            onSend(phrase)
+                            showQuickReplies = false
+                        },
+                        enabled = connected,
+                        label = { Text(phrase) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
         val visibleSuggestions = commandSuggestions.takeIf {
             connected && commandCompletionEnabled && it.requestInput == input.text && it.hasSuggestions
         }
@@ -280,12 +451,28 @@ internal fun ChatComposer(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (quickReplies.isNotEmpty()) {
+                AssistChip(
+                    onClick = { showQuickReplies = !showQuickReplies },
+                    label = { Text("短语") }
+                )
+                Spacer(Modifier.width(6.dp))
+            }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
                 placeholder = { Text(placeholder) },
                 singleLine = true,
                 enabled = connected,
+                leadingIcon = if (input.text.startsWith("/")) {
+                    {
+                        Icon(
+                            Icons.Default.Terminal,
+                            contentDescription = "命令",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                } else null,
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
@@ -322,6 +509,9 @@ private fun CommandSuggestionBar(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(14.dp))
                 }
             )
         }
