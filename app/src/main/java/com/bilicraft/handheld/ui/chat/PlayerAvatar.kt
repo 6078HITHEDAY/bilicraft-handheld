@@ -22,13 +22,14 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 private val avatarHttp = OkHttpClient.Builder()
@@ -37,8 +38,14 @@ private val avatarHttp = OkHttpClient.Builder()
     .followRedirects(true)
     .build()
 
-/** 内存缓存：同一玩家名只拉一次皮肤头。 */
-private val avatarCache = ConcurrentHashMap<String, Bitmap>()
+/** 内存缓存：同一玩家名只拉一次皮肤头（有界 LRU）。 */
+private val avatarCache = object : LinkedHashMap<String, Bitmap>(32, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean {
+        return size > com.bilicraft.handheld.ui.common.UiConstants.AVATAR_CACHE_MAX
+    }
+}
+private val avatarCacheLock = Any()
+private val defaultSteveHeadCached by lazy { defaultSteveHead() }
 
 @Composable
 internal fun PlayerAvatar(
@@ -49,24 +56,28 @@ internal fun PlayerAvatar(
 ) {
     val key = name.trim()
     var bitmap by remember(key) {
-        mutableStateOf(avatarCache[key.lowercase()] ?: defaultSteveHead())
+        mutableStateOf(
+            synchronized(avatarCacheLock) {
+                avatarCache[key.lowercase()] ?: defaultSteveHeadCached
+            }
+        )
     }
     LaunchedEffect(key) {
         if (key.isEmpty()) {
-            bitmap = defaultSteveHead()
+            bitmap = defaultSteveHeadCached
             return@LaunchedEffect
         }
-        val cached = avatarCache[key.lowercase()]
+        val cached = synchronized(avatarCacheLock) { avatarCache[key.lowercase()] }
         if (cached != null) {
             bitmap = cached
             return@LaunchedEffect
         }
         val loaded = withContext(Dispatchers.IO) { loadSkinHead(key) }
         if (loaded != null) {
-            avatarCache[key.lowercase()] = loaded
+            synchronized(avatarCacheLock) { avatarCache[key.lowercase()] = loaded }
             bitmap = loaded
         } else {
-            bitmap = defaultSteveHead()
+            bitmap = defaultSteveHeadCached
         }
     }
     val grayFilter = remember {
@@ -78,6 +89,7 @@ internal fun PlayerAvatar(
         modifier = modifier
             .size(size)
             .clip(RoundedCornerShape(size * 0.22f))
+            .semantics { contentDescription = if (online) "$name 在线" else "$name 离线" }
     ) {
         Image(
             bitmap = bitmap.asImageBitmap(),
@@ -89,12 +101,6 @@ internal fun PlayerAvatar(
             alpha = if (online) 1f else 0.55f
         )
     }
-}
-
-/** 频道列表等处的快捷头像（始终像素头，不用字母）。 */
-@Composable
-internal fun AvatarLetter(name: String, modifier: Modifier = Modifier.size(34.dp)) {
-    PlayerAvatar(name = name, online = true, size = 34.dp, modifier = modifier)
 }
 
 private fun loadSkinHead(name: String): Bitmap? {

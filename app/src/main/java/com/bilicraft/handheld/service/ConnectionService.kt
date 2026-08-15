@@ -345,6 +345,10 @@ class ConnectionService : Service() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP
+            val serverId = handoffStore.load()?.serverId
+            if (!serverId.isNullOrBlank()) {
+                putExtra(com.bilicraft.handheld.ui.nav.DeepLinkExtras.SERVER_ID, serverId)
+            }
         }
         return PendingIntent.getActivity(
             this, 0, intent,
