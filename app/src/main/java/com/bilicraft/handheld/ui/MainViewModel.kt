@@ -47,6 +47,9 @@ import java.io.File
 import java.util.UUID
 import com.bilicraft.handheld.version.McVersion
 import com.bilicraft.handheld.version.VersionRepository
+import com.bilicraft.handheld.ui.vm.ChatStateHolder
+import com.bilicraft.handheld.ui.vm.ContactsStateHolder
+import com.bilicraft.handheld.ui.vm.SettingsStateHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -83,11 +86,8 @@ data class ChannelPingUi(
 )
 
 /**
- * UI 状态聚合层。
- *
- * 依赖现有逻辑：登录、Token 刷新、连接、聊天、插件生命周期仍由既有模块负责。
- * 纯 UI 补足：服务器配置与联系人通过 UiConfigRepository 保存为应用私有 JSON。
- * 这个 ViewModel 不计算 Token、不解析协议、不直接操作加密存储。
+ * UI 状态聚合门面。
+ * 聊天 / 联系人 / 设置偏好操作委托给 Domain StateHolder，业务连接仍走 SessionController。
  */
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -114,6 +114,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _serverRuntime = MutableStateFlow(ServerRuntimeUiState())
     val serverRuntime: StateFlow<ServerRuntimeUiState> = _serverRuntime.asStateFlow()
+
+    private val chatHolder = ChatStateHolder(viewModelScope, uiConfigRepo, _serverRuntime)
+    private val contactsHolder = ContactsStateHolder(viewModelScope, uiConfigRepo)
+    private val settingsHolder = SettingsStateHolder(viewModelScope, uiConfigRepo)
 
     private val _channelPings = MutableStateFlow<Map<String, ChannelPingUi>>(emptyMap())
     val channelPings: StateFlow<Map<String, ChannelPingUi>> = _channelPings.asStateFlow()
@@ -148,6 +152,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _ignoringBatteryOptimizations = MutableStateFlow(false)
     val ignoringBatteryOptimizations: StateFlow<Boolean> = _ignoringBatteryOptimizations.asStateFlow()
+
+    private val _pendingDeepLinkServerId = MutableStateFlow<String?>(null)
+    val pendingDeepLinkServerId: StateFlow<String?> = _pendingDeepLinkServerId.asStateFlow()
 
     private var loginJob: Job? = null
 
@@ -197,6 +204,56 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _uiMessage.value = null
     }
 
+    fun offerDeepLinkServerId(serverId: String?) {
+        if (serverId.isNullOrBlank()) return
+        _pendingDeepLinkServerId.value = serverId
+    }
+
+    fun consumeDeepLink() {
+        _pendingDeepLinkServerId.value = null
+    }
+
+    fun unreadCount(serverId: String): Int =
+        chatHolder.unreadCount(serverId, preferences.value.lastReadTimestamps)
+
+    fun markChannelRead(serverId: String) {
+        val latest = _serverRuntime.value.chatLogs[serverId]?.lastOrNull()?.timestamp ?: System.currentTimeMillis()
+        viewModelScope.launch { uiConfigRepo.markChannelRead(serverId, latest) }
+    }
+
+    fun togglePinnedChannel(serverId: String) {
+        viewModelScope.launch { uiConfigRepo.togglePinnedChannel(serverId) }
+    }
+
+    fun toggleArchivedChannel(serverId: String) {
+        viewModelScope.launch { uiConfigRepo.toggleArchivedChannel(serverId) }
+    }
+
+    fun clearChannelChat(serverId: String) {
+        chatHolder.clearChannelChat(serverId)
+        _uiMessage.value = "已清空本地聊天记录"
+    }
+
+    fun removeLocalChatMessage(serverId: String, timestamp: Long, plainText: String) {
+        chatHolder.removeLocalMessage(serverId, timestamp, plainText)
+    }
+
+    fun setChatFontScale(scale: Float) {
+        settingsHolder.setChatFontScale(scale)
+    }
+
+    fun setMaxUiLog(limit: Int) {
+        settingsHolder.setMaxUiLog(limit)
+    }
+
+    fun setNotificationTapBehavior(behavior: com.bilicraft.handheld.config.NotificationTapBehavior) {
+        viewModelScope.launch { uiConfigRepo.setNotificationTapBehavior(behavior) }
+    }
+
+    fun setContactsGroupByServer(enabled: Boolean) {
+        viewModelScope.launch { uiConfigRepo.setContactsGroupByServer(enabled) }
+    }
+
     private suspend fun mirrorSessionEvents() {
         session.events.collect { event ->
             val serverId = event.serverId ?: _serverRuntime.value.activeServerId ?: return@collect
@@ -238,7 +295,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@update current
             }
             current.copy(
-                chatLogs = current.chatLogs + (serverId to (currentLog + tagged).takeLast(MAX_UI_LOG))
+                chatLogs = current.chatLogs + (
+                    serverId to (currentLog + tagged).takeLast(preferences.value.maxUiLog.coerceIn(100, 5000))
+                )
             )
         }
         val contactName = peer
@@ -652,10 +711,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _uiMessage.value = "玩家名不能为空"
             return
         }
-        viewModelScope.launch {
-            uiConfigRepo.upsertContact(uiConfigRepo.newContact(serverId, playerName, note))
-            _uiMessage.value = "联系人已保存"
-        }
+        contactsHolder.create(serverId, playerName, note)
+        _uiMessage.value = "联系人已保存"
     }
 
     fun saveContact(contact: ServerContact) {
@@ -663,17 +720,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _uiMessage.value = "玩家名不能为空"
             return
         }
-        viewModelScope.launch {
-            uiConfigRepo.upsertContact(contact.copy(playerName = contact.playerName.trim(), note = contact.note.trim()))
-            _uiMessage.value = "联系人已保存"
-        }
+        contactsHolder.save(contact)
+        _uiMessage.value = "联系人已保存"
     }
 
     fun deleteContact(id: String) {
-        viewModelScope.launch {
-            uiConfigRepo.deleteContact(id)
-            _uiMessage.value = "联系人已删除"
-        }
+        contactsHolder.delete(id)
+        _uiMessage.value = "联系人已删除"
     }
 
     fun refreshChannelPing(server: ServerConfig) {
@@ -900,7 +953,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private companion object {
-        const val MAX_UI_LOG = 500
         /** 频道列表 ping 结果的缓存时长：正常模式 60s，低能耗模式 5min。 */
         const val CHANNEL_PING_TTL_MS = 60_000L
         const val CHANNEL_PING_TTL_LOW_POWER_MS = 5 * 60_000L
