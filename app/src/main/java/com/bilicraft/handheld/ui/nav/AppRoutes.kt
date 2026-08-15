@@ -29,5 +29,14 @@ object AppRoutes {
 
 /** 通知 / 深链 Intent extras。 */
 object DeepLinkExtras {
+    /** 通知点击跳转频道用；与 ConnectionService 启动参数的 server_id 区分，避免互相覆盖。 */
     const val SERVER_ID = "extra_server_id"
+    /** 兼容读取连接 Service 写入的 server_id。 */
+    const val SERVER_ID_LEGACY = "server_id"
+
+    fun serverIdFrom(intent: android.content.Intent?): String? {
+        if (intent == null) return null
+        return intent.getStringExtra(SERVER_ID)?.takeIf { it.isNotBlank() }
+            ?: intent.getStringExtra(SERVER_ID_LEGACY)?.takeIf { it.isNotBlank() }
+    }
 }

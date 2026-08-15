@@ -696,5 +696,4 @@ private val BACKGROUND_LIMIT_STEPS = listOf(
 )
 
 
-private const val CDK_ACTIVE_WINDOW_REFRESH_MS = 60_000L
 private const val CDK_COPY_FEEDBACK_MS = 1_600L

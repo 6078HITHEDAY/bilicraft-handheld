@@ -341,17 +341,19 @@ class ConnectionService : Service() {
      * FLAG_IMMUTABLE：Android 12+ 强制要求，且本 Intent 无需被外部改写。
      */
     private fun contentIntent(): PendingIntent {
+        val serverId = handoffStore.load()?.serverId
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP
-            val serverId = handoffStore.load()?.serverId
             if (!serverId.isNullOrBlank()) {
                 putExtra(com.bilicraft.handheld.ui.nav.DeepLinkExtras.SERVER_ID, serverId)
             }
         }
         return PendingIntent.getActivity(
-            this, 0, intent,
+            this,
+            serverId?.hashCode() ?: 0,
+            intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }

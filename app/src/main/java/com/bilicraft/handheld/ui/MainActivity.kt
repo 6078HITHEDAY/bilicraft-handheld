@@ -55,9 +55,10 @@ class MainActivity : ComponentActivity() {
     private fun handleDeepLink(intent: Intent?) {
         if (intent == null) return
         if (vm.preferences.value.notificationTapBehavior != NotificationTapBehavior.OpenChannel) return
-        val serverId = intent.getStringExtra(DeepLinkExtras.SERVER_ID) ?: return
+        val serverId = DeepLinkExtras.serverIdFrom(intent) ?: return
         vm.offerDeepLinkServerId(serverId)
         intent.removeExtra(DeepLinkExtras.SERVER_ID)
+        intent.removeExtra(DeepLinkExtras.SERVER_ID_LEGACY)
     }
 
     private fun requestNotificationPermissionIfNeeded() {

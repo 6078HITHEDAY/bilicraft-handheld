@@ -76,7 +76,7 @@ data class UiPreferences(
     /** serverId → 上次已读消息时间戳 */
     val lastReadTimestamps: Map<String, Long> = emptyMap(),
     val chatFontScale: Float = 1f,
-    val maxUiLog: Int = 500,
+    val maxUiLog: Int = 500, // 与 UiConstants.MAX_UI_LOG_DEFAULT 对齐；config 层不依赖 ui 包
     val notificationTapBehavior: NotificationTapBehavior = NotificationTapBehavior.OpenChannel,
     val quickReplies: List<String> = listOf("在的", "稍等", "收到", "好的"),
     val contactsGroupByServer: Boolean = false

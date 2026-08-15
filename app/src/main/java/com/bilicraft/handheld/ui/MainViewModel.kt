@@ -296,7 +296,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             current.copy(
                 chatLogs = current.chatLogs + (
-                    serverId to (currentLog + tagged).takeLast(preferences.value.maxUiLog.coerceIn(100, 5000))
+                    serverId to (currentLog + tagged).takeLast(
+                        com.bilicraft.handheld.ui.common.UiConstants.clampMaxUiLog(preferences.value.maxUiLog)
+                    )
                 )
             )
         }

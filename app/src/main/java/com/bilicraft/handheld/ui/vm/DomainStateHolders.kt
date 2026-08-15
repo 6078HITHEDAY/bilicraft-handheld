@@ -41,7 +41,9 @@ class ChatStateHolder(
 
     fun trimLog(serverId: String, event: ChatEvent, maxUiLog: Int): List<ChatEvent> {
         val current = serverRuntime.value.chatLogs[serverId].orEmpty()
-        return (current + event).takeLast(maxUiLog.coerceIn(100, 5000))
+        return (current + event).takeLast(
+            com.bilicraft.handheld.ui.common.UiConstants.clampMaxUiLog(maxUiLog)
+        )
     }
 }
 
@@ -79,6 +81,10 @@ class SettingsStateHolder(
     }
 
     fun setMaxUiLog(limit: Int) {
-        scope.launch { uiConfigRepo.setMaxUiLog(limit) }
+        scope.launch {
+            uiConfigRepo.setMaxUiLog(
+                com.bilicraft.handheld.ui.common.UiConstants.clampMaxUiLog(limit)
+            )
+        }
     }
 }

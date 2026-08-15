@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.bilicraft.handheld.ui.common.UiConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -40,9 +41,8 @@ private val avatarHttp = OkHttpClient.Builder()
 
 /** 内存缓存：同一玩家名只拉一次皮肤头（有界 LRU）。 */
 private val avatarCache = object : LinkedHashMap<String, Bitmap>(32, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean {
-        return size > com.bilicraft.handheld.ui.common.UiConstants.AVATAR_CACHE_MAX
-    }
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean =
+        size > UiConstants.AVATAR_CACHE_MAX
 }
 private val avatarCacheLock = Any()
 private val defaultSteveHeadCached by lazy { defaultSteveHead() }
