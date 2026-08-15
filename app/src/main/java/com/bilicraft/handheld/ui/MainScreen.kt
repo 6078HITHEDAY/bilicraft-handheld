@@ -1,6 +1,8 @@
 package com.bilicraft.handheld.ui
 
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +37,7 @@ import androidx.navigation.navArgument
 import com.bilicraft.handheld.ui.chat.ChannelChatScreen
 import com.bilicraft.handheld.ui.chat.ChatChannelsScreen
 import com.bilicraft.handheld.ui.chat.DmChatScreen
+import com.bilicraft.handheld.ui.common.motionDurationMs
 import com.bilicraft.handheld.ui.contacts.ContactsScreen
 import com.bilicraft.handheld.ui.nav.AppRoutes
 import com.bilicraft.handheld.ui.plugins.ExternalPluginPanelScreen
@@ -71,6 +74,7 @@ fun MainScreen(vm: MainViewModel) {
     }
     val pendingDeepLink by vm.pendingDeepLinkServerId.collectAsStateWithLifecycle()
     val activePlugin by vm.activeExternalPluginPanel.collectAsStateWithLifecycle()
+    val navAnimMs = motionDurationMs(220)
 
     LaunchedEffect(uiMessage) {
         val message = uiMessage ?: return@LaunchedEffect
@@ -151,27 +155,31 @@ fun MainScreen(vm: MainViewModel) {
                 navController = navController,
                 startDestination = AppRoutes.TAB_CHAT,
                 enterTransition = {
-                    slideIntoContainer(
+                    if (navAnimMs == 0) EnterTransition.None
+                    else slideIntoContainer(
                         AnimatedContentTransitionScope.SlideDirection.Start,
-                        animationSpec = tween(220)
+                        animationSpec = tween(navAnimMs)
                     )
                 },
                 exitTransition = {
-                    slideOutOfContainer(
+                    if (navAnimMs == 0) ExitTransition.None
+                    else slideOutOfContainer(
                         AnimatedContentTransitionScope.SlideDirection.Start,
-                        animationSpec = tween(220)
+                        animationSpec = tween(navAnimMs)
                     )
                 },
                 popEnterTransition = {
-                    slideIntoContainer(
+                    if (navAnimMs == 0) EnterTransition.None
+                    else slideIntoContainer(
                         AnimatedContentTransitionScope.SlideDirection.End,
-                        animationSpec = tween(220)
+                        animationSpec = tween(navAnimMs)
                     )
                 },
                 popExitTransition = {
-                    slideOutOfContainer(
+                    if (navAnimMs == 0) ExitTransition.None
+                    else slideOutOfContainer(
                         AnimatedContentTransitionScope.SlideDirection.End,
-                        animationSpec = tween(220)
+                        animationSpec = tween(navAnimMs)
                     )
                 }
             ) {
@@ -270,12 +278,43 @@ fun MainScreen(vm: MainViewModel) {
                             }
                         }
                     } else {
-                        DmChatScreen(
-                            vm = vm,
-                            server = server,
-                            contact = contact,
-                            onBack = { navController.popBackStack() }
-                        )
+                        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                            val wide = maxWidth.value >= com.bilicraft.handheld.ui.common.UiConstants.WIDE_LAYOUT_MIN_WIDTH_DP
+                            if (wide) {
+                                androidx.compose.foundation.layout.Row(Modifier.fillMaxSize()) {
+                                    androidx.compose.foundation.layout.Box(
+                                        Modifier.weight(0.38f).fillMaxSize()
+                                    ) {
+                                        ContactsScreen(
+                                            vm = vm,
+                                            onOpenDm = { sid, cid ->
+                                                navController.navigate(AppRoutes.dm(sid, cid)) {
+                                                    popUpTo(AppRoutes.TAB_CONTACTS)
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        )
+                                    }
+                                    androidx.compose.foundation.layout.Box(
+                                        Modifier.weight(0.62f).fillMaxSize()
+                                    ) {
+                                        DmChatScreen(
+                                            vm = vm,
+                                            server = server,
+                                            contact = contact,
+                                            onBack = { navController.popBackStack() }
+                                        )
+                                    }
+                                }
+                            } else {
+                                DmChatScreen(
+                                    vm = vm,
+                                    server = server,
+                                    contact = contact,
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+                        }
                     }
                 }
                 composable(AppRoutes.PLUGIN_CENTER) {

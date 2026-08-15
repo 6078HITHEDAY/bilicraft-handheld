@@ -2,6 +2,7 @@ package com.bilicraft.handheld.ui.chat
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -68,6 +69,7 @@ import com.bilicraft.handheld.protocol.CommandSuggestion
 import com.bilicraft.handheld.protocol.CommandSuggestionState
 import com.bilicraft.handheld.protocol.CommandSuggestions
 import com.bilicraft.handheld.ui.common.UiConstants
+import com.bilicraft.handheld.ui.common.motionDurationMs
 import com.bilicraft.handheld.ui.common.toAnnotated
 import com.bilicraft.handheld.ui.theme.BilicraftChatTypography
 import com.bilicraft.handheld.ui.theme.BilicraftSpacing
@@ -94,6 +96,8 @@ internal fun BubbleChatLog(
     modifier: Modifier = Modifier,
     fontScale: Float = 1f,
     quickReplies: List<String> = emptyList(),
+    /** 进入会话时快照的已读水位；用于「以下为新消息」分隔，不随后续 markRead 变化。 */
+    lastReadAt: Long? = null,
     onDeleteLocal: ((ChatEvent) -> Unit)? = null,
     onForward: ((String) -> Unit)? = null
 ) {
@@ -104,6 +108,10 @@ internal fun BubbleChatLog(
     var autoScrolling by remember { mutableStateOf(false) }
     var menuItem by remember { mutableStateOf<ClassifiedChat?>(null) }
     val classified = remember(log, selfName) { log.map { classifyChat(it, selfName) } }
+    val firstUnreadIndex = remember(classified, lastReadAt) {
+        if (lastReadAt == null) -1
+        else classified.indexOfFirst { it.event.timestamp > lastReadAt }
+    }
     val surface = chatSurfaceColor()
     val defaultText = chatDefaultTextColor()
     val dayFmt = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
@@ -118,6 +126,7 @@ internal fun BubbleChatLog(
     val lastListIndex = remember(dayGroups) {
         dayGroups.sumOf { 1 + it.second.size } - 1
     }
+    val fadeMs = motionDurationMs(180)
 
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -172,8 +181,11 @@ internal fun BubbleChatLog(
                         key = { (index, c) ->
                             "${c.event.timestamp}|${c.senderLabel}|${c.bodyPlain}|$index"
                         }
-                    ) { (_, item) ->
-                        AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
+                    ) { (index, item) ->
+                        if (index == firstUnreadIndex && firstUnreadIndex > 0) {
+                            UnreadSeparator()
+                        }
+                        if (fadeMs == 0) {
                             ChatBubble(
                                 item = item,
                                 selfName = selfName,
@@ -185,6 +197,24 @@ internal fun BubbleChatLog(
                                 },
                                 onLongClick = { menuItem = item }
                             )
+                        } else {
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = fadeIn(animationSpec = tween(fadeMs)),
+                                exit = fadeOut(animationSpec = tween(fadeMs))
+                            ) {
+                                ChatBubble(
+                                    item = item,
+                                    selfName = selfName,
+                                    maxWidth = maxBubbleWidth,
+                                    fontScale = fontScale,
+                                    onCopy = {
+                                        clipboardManager.setText(AnnotatedString(item.event.plainText))
+                                        Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onLongClick = { menuItem = item }
+                                )
+                            }
                         }
                     }
                 }
@@ -266,6 +296,35 @@ private fun DateSeparator(label: String) {
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
                 .padding(horizontal = 10.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun UnreadSeparator() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+        )
+        Text(
+            "以下为新消息",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 10.dp)
+        )
+        Box(
+            Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
         )
     }
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,6 +57,7 @@ import com.bilicraft.handheld.ui.common.ConfirmDialog
 import com.bilicraft.handheld.ui.common.EmptyState
 import com.bilicraft.handheld.ui.common.ScreenHeader
 import com.bilicraft.handheld.ui.common.StatusDot
+import com.bilicraft.handheld.ui.common.UiConstants
 import com.bilicraft.handheld.ui.common.statusText
 import com.bilicraft.handheld.ui.server.ServerEditorDialog
 import com.bilicraft.handheld.ui.theme.BilicraftSpacing
@@ -263,6 +265,7 @@ private fun ChannelRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = UiConstants.MIN_TOUCH_TARGET_DP.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = BilicraftSpacing.md, vertical = BilicraftSpacing.md - 4.dp),
         verticalAlignment = Alignment.CenterVertically

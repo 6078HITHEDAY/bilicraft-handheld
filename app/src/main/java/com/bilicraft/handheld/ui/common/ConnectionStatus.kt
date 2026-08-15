@@ -27,13 +27,15 @@ internal fun StatusDot(conn: ConnectionState) {
     val pulsing = conn is ConnectionState.Connecting ||
         conn is ConnectionState.LoggingIn ||
         conn is ConnectionState.Reconnecting
-    val scale = if (pulsing) {
+    val animatePulse = pulsing && motionEnabled()
+    val scale = if (animatePulse) {
+        val pulseMs = motionDurationMs(700).coerceAtLeast(1)
         val transition = rememberInfiniteTransition(label = "statusPulse")
         val animated by transition.animateFloat(
             initialValue = 0.85f,
             targetValue = 1.25f,
             animationSpec = infiniteRepeatable(
-                animation = tween(700),
+                animation = tween(pulseMs),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "pulseScale"

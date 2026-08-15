@@ -100,6 +100,10 @@ internal fun ChannelChatScreen(
     LaunchedEffect(server.id) {
         vm.markChannelRead(server.id)
     }
+    // 进房前水位快照，供未读分隔条使用（不受随后 markRead 影响）
+    val unreadAnchorTs = remember(server.id) {
+        preferences.lastReadTimestamps[server.id]
+    }
 
     val conn = runtime.connectionStates[server.id] ?: ConnectionState.Disconnected
     val selfName = vm.currentAccountName
@@ -169,6 +173,7 @@ internal fun ChannelChatScreen(
                 autoScroll = preferences.chatAutoScroll,
                 fontScale = preferences.chatFontScale,
                 quickReplies = preferences.quickReplies,
+                lastReadAt = unreadAnchorTs,
                 onDeleteLocal = { event ->
                     vm.removeLocalChatMessage(server.id, event.timestamp, event.plainText)
                 },
