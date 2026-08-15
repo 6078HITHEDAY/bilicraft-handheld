@@ -70,6 +70,7 @@ import com.bilicraft.handheld.protocol.CommandSuggestionState
 import com.bilicraft.handheld.protocol.CommandSuggestions
 import com.bilicraft.handheld.ui.common.UiConstants
 import com.bilicraft.handheld.ui.common.toAnnotated
+import com.bilicraft.handheld.ui.theme.BilicraftChatTypography
 import com.bilicraft.handheld.ui.theme.BilicraftSpacing
 import com.bilicraft.handheld.ui.theme.bubbleOtherColor
 import com.bilicraft.handheld.ui.theme.bubbleSelfColor
@@ -281,7 +282,7 @@ private fun ChatBubble(
     onLongClick: () -> Unit
 ) {
     val defaultText = chatDefaultTextColor()
-    val bodyStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * fontScale).sp)
+    val bodyStyle = BilicraftChatTypography.bubble.copy(fontSize = (14 * fontScale).sp)
     when (item.kind) {
         BubbleKind.System -> {
             Box(
@@ -328,14 +329,13 @@ private fun ChatBubble(
                         )
                         .background(if (self) bubbleSelfColor() else bubbleOtherColor())
                         .combinedClickable(onClick = onCopy, onLongClick = onLongClick)
-                        .padding(horizontal = 12.dp, vertical = BilicraftSpacing.sm)
+                        .padding(horizontal = BilicraftSpacing.md - 4.dp, vertical = BilicraftSpacing.sm)
                 ) {
                     if (!self) {
                         Text(
                             text = item.senderLabel.orEmpty(),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = BilicraftChatTypography.sender,
                             color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -357,10 +357,9 @@ private fun ChatBubble(
                     }
                     Text(
                         text = formatChatTime(item.event.timestamp),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = BilicraftChatTypography.timestamp,
                         color = bubbleTimestampColor(),
-                        modifier = Modifier.align(Alignment.End).padding(top = 4.dp),
-                        fontSize = 10.sp
+                        modifier = Modifier.align(Alignment.End).padding(top = BilicraftSpacing.xs)
                     )
                 }
                 if (self && avatarName.isNotBlank()) {

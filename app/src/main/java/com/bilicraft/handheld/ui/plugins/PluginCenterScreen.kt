@@ -43,6 +43,7 @@ import com.bilicraft.handheld.ui.MainViewModel
 import com.bilicraft.handheld.ui.common.SectionTitle
 import com.bilicraft.handheld.ui.common.SettingAction
 import com.bilicraft.handheld.ui.common.SettingActions
+import com.bilicraft.handheld.ui.theme.BilicraftSpacing
 
 @Composable
 internal fun PluginCenterScreen(vm: MainViewModel) {
@@ -75,7 +76,7 @@ internal fun PluginCenterScreen(vm: MainViewModel) {
             item {
                 Text(
                     "把 .bhplugin 文件放入上方目录，或点击“导入插件包”选择外部文件。",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = BilicraftSpacing.md, vertical = BilicraftSpacing.sm),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -103,7 +104,7 @@ internal fun PluginCenterScreen(vm: MainViewModel) {
             item {
                 Text(
                     "官方源暂无可展示插件。刷新失败时会保留本地缓存。",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = BilicraftSpacing.md, vertical = BilicraftSpacing.sm),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -129,11 +130,14 @@ private fun OfficialPluginMarketHeader(
     onRefresh: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = BilicraftSpacing.md, vertical = 6.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(BilicraftSpacing.bubbleRadius)
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            Modifier.fillMaxWidth().padding(BilicraftSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(BilicraftSpacing.sm)
+        ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("官方精选", fontWeight = FontWeight.SemiBold)

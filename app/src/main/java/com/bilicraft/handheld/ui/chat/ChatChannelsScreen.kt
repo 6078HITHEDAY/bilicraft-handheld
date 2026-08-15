@@ -56,6 +56,7 @@ import com.bilicraft.handheld.ui.common.ScreenHeader
 import com.bilicraft.handheld.ui.common.StatusDot
 import com.bilicraft.handheld.ui.common.statusText
 import com.bilicraft.handheld.ui.server.ServerEditorDialog
+import com.bilicraft.handheld.ui.theme.BilicraftSpacing
 import kotlin.system.exitProcess
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -106,7 +107,7 @@ internal fun ChatChannelsScreen(
             text = vm.currentAccountName,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+            modifier = Modifier.padding(horizontal = BilicraftSpacing.md, vertical = 2.dp)
         )
 
         if (servers.isEmpty()) {
@@ -261,11 +262,11 @@ private fun ChannelRow(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = BilicraftSpacing.md, vertical = BilicraftSpacing.md - 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         ChannelAvatar(server.name, ping)
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(BilicraftSpacing.md - 4.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (pinned) {
@@ -322,7 +323,7 @@ private fun ChannelAvatar(name: String, ping: ChannelPingUi?) {
         Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = null,
-            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp))
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(BilicraftSpacing.bubbleRadius))
         )
     } else {
         val bg = remember(name) {
@@ -335,7 +336,7 @@ private fun ChannelAvatar(name: String, ping: ChannelPingUi?) {
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(BilicraftSpacing.bubbleRadius))
                 .background(bg),
             contentAlignment = Alignment.Center
         ) {

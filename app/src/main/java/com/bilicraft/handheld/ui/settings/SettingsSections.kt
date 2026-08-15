@@ -29,6 +29,7 @@ import com.bilicraft.handheld.ui.common.PreferenceRow
 import com.bilicraft.handheld.ui.common.SectionTitle
 import com.bilicraft.handheld.ui.common.SettingAction
 import com.bilicraft.handheld.ui.common.SettingActions
+import com.bilicraft.handheld.ui.common.SettingSection
 
 @Composable
 internal fun AccountSection(
@@ -78,8 +79,7 @@ internal fun ChatSection(
     onFontScale: () -> Unit,
     onLogLimit: () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth()) {
-        SectionTitle("聊天显示")
+    SettingSection(title = "聊天显示") {
         PreferenceRow(
             title = "自动滚动到最新聊天",
             subtitle = "关闭后，新消息不会打断你查看历史。",
@@ -114,8 +114,7 @@ internal fun BackgroundSection(
     ignoringBatteryOptimizations: Boolean,
     onGuide: () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth()) {
-        SectionTitle("后台保活")
+    SettingSection(title = "后台保活") {
         PreferenceRow(
             title = "低能耗挂后台",
             subtitle = "退到后台或息屏后降低连接功率。",
@@ -145,8 +144,7 @@ internal fun AppearanceSection(
     onIcon: () -> Unit,
     onNotif: () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth()) {
-        SectionTitle("外观")
+    SettingSection(title = "外观") {
         PreferenceRow(
             title = "主题",
             subtitle = preferences.themeMode.displayName,
@@ -188,39 +186,41 @@ internal fun AboutSection(
     onSource: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth()) {
-        SectionTitle("版本数据")
-        PreferenceRow(
-            title = "刷新版本列表",
-            subtitle = "重新拉取 Minecraft 版本元数据",
-            onClick = { vm.refreshVersions(silent = false) },
-            trailing = { Icon(Icons.Default.Refresh, contentDescription = null) }
-        )
-        PreferenceRow(
-            title = "清除版本缓存",
-            onClick = vm::clearVersionCache,
-            trailing = { Icon(Icons.Default.Delete, contentDescription = null) }
-        )
-        SectionTitle("关于")
-        PreferenceRow(
-            title = "检查更新",
-            subtitle = "v${vm.versionNameText}",
-            icon = Icons.Default.Info,
-            onClick = { vm.checkForUpdate() },
-            trailing = { Icon(Icons.Default.ChevronRight, contentDescription = null) }
-        )
-        PreferenceRow(
-            title = "下载线路",
-            subtitle = preferences.downloadSource.displayName,
-            onClick = onSource,
-            trailing = { Icon(Icons.Default.ChevronRight, contentDescription = null) }
-        )
-        PreferenceRow(
-            title = "包名",
-            subtitle = vm.packageNameText
-        )
-        PreferenceRow(
-            title = "插件目录",
-            subtitle = vm.pluginDropDirText
-        )
+        SettingSection(title = "版本数据") {
+            PreferenceRow(
+                title = "刷新版本列表",
+                subtitle = "重新拉取 Minecraft 版本元数据",
+                onClick = { vm.refreshVersions(silent = false) },
+                trailing = { Icon(Icons.Default.Refresh, contentDescription = null) }
+            )
+            PreferenceRow(
+                title = "清除版本缓存",
+                onClick = vm::clearVersionCache,
+                trailing = { Icon(Icons.Default.Delete, contentDescription = null) }
+            )
+        }
+        SettingSection(title = "关于") {
+            PreferenceRow(
+                title = "检查更新",
+                subtitle = "v${vm.versionNameText}",
+                icon = Icons.Default.Info,
+                onClick = { vm.checkForUpdate() },
+                trailing = { Icon(Icons.Default.ChevronRight, contentDescription = null) }
+            )
+            PreferenceRow(
+                title = "下载线路",
+                subtitle = preferences.downloadSource.displayName,
+                onClick = onSource,
+                trailing = { Icon(Icons.Default.ChevronRight, contentDescription = null) }
+            )
+            PreferenceRow(
+                title = "包名",
+                subtitle = vm.packageNameText
+            )
+            PreferenceRow(
+                title = "插件目录",
+                subtitle = vm.pluginDropDirText
+            )
+        }
     }
 }

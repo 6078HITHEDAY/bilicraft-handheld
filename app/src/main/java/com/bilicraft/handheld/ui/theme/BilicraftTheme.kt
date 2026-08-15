@@ -99,6 +99,27 @@ private val BilicraftTypography = Typography(
     labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 14.sp)
 )
 
+/** 聊天专用字号阶梯（不塞进 M3 Typography 命名冲突里）。 */
+object BilicraftChatTypography {
+    val bubble = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontSize = 14.sp,
+        lineHeight = 20.sp
+    )
+    val timestamp = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 10.sp,
+        lineHeight = 12.sp
+    )
+    val sender = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 12.sp,
+        lineHeight = 16.sp
+    )
+}
+
 private val BilicraftShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(10.dp),
