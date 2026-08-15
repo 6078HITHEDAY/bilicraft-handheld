@@ -52,10 +52,20 @@ class ContactsStateHolder(
     private val scope: CoroutineScope,
     private val uiConfigRepo: UiConfigRepository
 ) {
+    /** 同服同名则更新备注，避免重复条目。 */
     fun create(serverId: String, playerName: String, note: String = "") {
-        if (playerName.isBlank()) return
+        val name = playerName.trim()
+        if (name.isBlank()) return
         scope.launch {
-            uiConfigRepo.upsertContact(uiConfigRepo.newContact(serverId, playerName, note))
+            val existing = uiConfigRepo.contacts.value.firstOrNull {
+                it.serverId == serverId && it.playerName.equals(name, ignoreCase = true)
+            }
+            if (existing != null) {
+                val mergedNote = note.trim().ifBlank { existing.note }
+                uiConfigRepo.upsertContact(existing.copy(note = mergedNote))
+            } else {
+                uiConfigRepo.upsertContact(uiConfigRepo.newContact(serverId, name, note))
+            }
         }
     }
 

@@ -743,6 +743,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _uiMessage.value = "联系人已删除"
     }
 
+    fun findContact(contactId: String): ServerContact? =
+        contacts.value.firstOrNull { it.id == contactId }
+
     fun refreshChannelPing(server: ServerConfig) {
         viewModelScope.launch(Dispatchers.IO) {
             // 节流：短时间内已有结果（含低能耗模式的更长 TTL）则跳过，避免每次进聊天页都全量 ping。

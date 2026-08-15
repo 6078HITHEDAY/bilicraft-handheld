@@ -258,9 +258,17 @@ fun MainScreen(vm: MainViewModel) {
                     val serverId = entry.arguments?.getString("serverId").orEmpty()
                     val contactId = entry.arguments?.getString("contactId").orEmpty()
                     val server = servers.firstOrNull { it.id == serverId }
-                    val contact = contacts.firstOrNull { it.id == contactId }
+                    // 直接读 StateFlow.value，避免刚 upsert 后 collectAsState 晚一帧导致误 pop
+                    val contact = vm.findContact(contactId)
+                        ?: contacts.firstOrNull { it.id == contactId }
                     if (server == null || contact == null) {
-                        LaunchedEffect(serverId, contactId) { navController.popBackStack() }
+                        LaunchedEffect(serverId, contactId, contacts) {
+                            if (vm.findContact(contactId) == null ||
+                                servers.none { it.id == serverId }
+                            ) {
+                                navController.popBackStack()
+                            }
+                        }
                     } else {
                         DmChatScreen(
                             vm = vm,

@@ -1,9 +1,9 @@
 package com.bilicraft.handheld.ui.contacts
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bilicraft.handheld.config.ServerConfig
 import com.bilicraft.handheld.config.ServerContact
 import com.bilicraft.handheld.protocol.RosterPlayer
 import com.bilicraft.handheld.ui.MainViewModel
@@ -87,9 +89,34 @@ internal fun ContactsScreen(
     }
 
     var menuContact by remember { mutableStateOf<ServerContact?>(null) }
+    var menuServerId by remember { mutableStateOf<String?>(null) }
     var noteContact by remember { mutableStateOf<ServerContact?>(null) }
     var showServerPicker by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+
+    fun openRow(serverId: String, row: ContactRow) {
+        val persisted = contacts.firstOrNull {
+            it.id == row.contact.id ||
+                (it.serverId == serverId && it.playerName.equals(row.contact.playerName, ignoreCase = true))
+        }
+        if (persisted != null) {
+            onOpenDm(serverId, persisted.id)
+        } else {
+            vm.openAutoContact(serverId, row.contact.playerName, row.contact.id) {
+                onOpenDm(serverId, it.id)
+            }
+        }
+    }
+
+    fun filterRows(rows: List<ContactRow>): List<ContactRow> {
+        val q = searchQuery.trim()
+        if (q.isEmpty()) return rows
+        return rows.filter {
+            it.contact.playerName.contains(q, ignoreCase = true) ||
+                it.contact.note.contains(q, ignoreCase = true)
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(
@@ -102,45 +129,40 @@ internal fun ContactsScreen(
         )
 
         if (servers.isEmpty()) {
-            Column(
-                Modifier.fillMaxSize().padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("还没有服务器", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "连接频道后会自动识别在线玩家，也可手动添加。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            EmptyState(
+                title = "还没有服务器",
+                message = "连接频道后会自动识别在线玩家，也可手动添加。"
+            )
             return
+        }
+
+        if (!preferences.contactsGroupByServer) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = UiConstants.MIN_TOUCH_TARGET_DP.dp)
+                    .clickable { showServerPicker = true }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("主服务器", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        primaryServer?.name ?: "选择服务器",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = "选择主服务器")
+            }
+            HorizontalDivider()
         }
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = UiConstants.MIN_TOUCH_TARGET_DP.dp)
-                .clickable { showServerPicker = true }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("主服务器", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                Text(
-                    primaryServer?.name ?: "选择服务器",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Icon(Icons.Default.ChevronRight, contentDescription = "选择主服务器")
-        }
-        HorizontalDivider()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("按服务器分组", modifier = Modifier.weight(1f))
@@ -151,33 +173,51 @@ internal fun ContactsScreen(
         }
         HorizontalDivider()
 
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            placeholder = { Text("搜索玩家名或备注") },
+            singleLine = true
+        )
+
         if (preferences.contactsGroupByServer) {
-            if (grouped.isEmpty()) {
+            val filteredGrouped = remember(grouped, searchQuery) {
+                grouped.mapValues { (_, rows) -> filterRows(rows) }.filterValues { it.isNotEmpty() }
+            }
+            if (filteredGrouped.isEmpty()) {
                 EmptyState(
-                    title = "暂无联系人",
-                    message = "连接频道或手动添加后会显示在此。"
+                    title = if (searchQuery.isNotBlank()) "无匹配联系人" else "暂无联系人",
+                    message = if (searchQuery.isNotBlank()) "试试其他关键词。"
+                    else "连接频道或手动添加后会显示在此。",
+                    actionText = if (searchQuery.isBlank()) "添加联系人" else null,
+                    onAction = if (searchQuery.isBlank()) ({ showAddDialog = true }) else null
                 )
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    grouped.forEach { (server, rows) ->
-                        item(key = "header-${server.id}") {
+                    filteredGrouped.forEach { (server, rows) ->
+                        stickyHeader(key = "header-${server.id}") {
                             Text(
                                 server.name,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .padding(horizontal = 16.dp, vertical = 10.dp)
                             )
                         }
                         items(rows, key = { "${server.id}-${it.contact.id}" }) { row ->
                             ContactListRow(
                                 row = row,
-                                onClick = {
-                                    vm.openAutoContact(server.id, row.contact.playerName, row.contact.id) {
-                                        onOpenDm(server.id, it.id)
-                                    }
-                                },
-                                onLongClick = { menuContact = row.contact }
+                                onClick = { openRow(server.id, row) },
+                                onLongClick = {
+                                    menuContact = row.contact
+                                    menuServerId = server.id
+                                }
                             )
                             HorizontalDivider()
                         }
@@ -185,31 +225,39 @@ internal fun ContactsScreen(
                 }
             }
         } else {
-            val onlineCount = scoped.count { it.online }
+            val filteredScoped = remember(scoped, searchQuery) { filterRows(scoped) }
+            val onlineCount = filteredScoped.count { it.online }
             Text(
-                text = if (scoped.isEmpty()) "连接后自动同步成员"
-                else "在线 $onlineCount · 共 ${scoped.size} 人",
+                text = when {
+                    scoped.isEmpty() -> "连接后自动同步成员"
+                    searchQuery.isNotBlank() -> "匹配 ${filteredScoped.size} 人"
+                    else -> "在线 $onlineCount · 共 ${scoped.size} 人"
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
-            if (scoped.isEmpty()) {
+            if (filteredScoped.isEmpty()) {
                 EmptyState(
-                    title = "暂无联系人",
-                    message = "进入「${primaryServer?.name ?: "频道"}」并连接后，会从服务器名单自动识别玩家。"
+                    title = if (searchQuery.isNotBlank()) "无匹配联系人" else "暂无联系人",
+                    message = if (searchQuery.isNotBlank()) "试试其他关键词。"
+                    else "进入「${primaryServer?.name ?: "频道"}」并连接后，会从服务器名单自动识别玩家。",
+                    actionText = if (searchQuery.isBlank()) "添加联系人" else null,
+                    onAction = if (searchQuery.isBlank()) ({ showAddDialog = true }) else null
                 )
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(scoped, key = { it.contact.id }) { row ->
+                    items(filteredScoped, key = { it.contact.id }) { row ->
                         ContactListRow(
                             row = row,
                             onClick = {
                                 val sid = primaryServerId ?: return@ContactListRow
-                                vm.openAutoContact(sid, row.contact.playerName, row.contact.id) {
-                                    onOpenDm(sid, it.id)
-                                }
+                                openRow(sid, row)
                             },
-                            onLongClick = { menuContact = row.contact }
+                            onLongClick = {
+                                menuContact = row.contact
+                                menuServerId = primaryServerId
+                            }
                         )
                         HorizontalDivider()
                     }
@@ -255,54 +303,13 @@ internal fun ContactsScreen(
     }
 
     if (showAddDialog) {
-        var name by remember { mutableStateOf("") }
-        var note by remember { mutableStateOf("") }
-        var serverId by remember { mutableStateOf(primaryServerId.orEmpty()) }
-        AlertDialog(
-            onDismissRequest = { showAddDialog = false },
-            title = { Text("添加联系人") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("玩家名") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = note,
-                        onValueChange = { note = it },
-                        label = { Text("备注（可选）") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    servers.forEach { server ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { serverId = server.id }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(selected = serverId == server.id, onClick = { serverId = server.id })
-                            Text(server.name)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (serverId.isNotBlank() && name.isNotBlank()) {
-                        vm.createContact(serverId, name, note)
-                        showAddDialog = false
-                    }
-                }) { Text("添加") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) { Text("取消") }
+        AddContactDialog(
+            servers = servers,
+            initialServerId = primaryServerId.orEmpty(),
+            onDismiss = { showAddDialog = false },
+            onConfirm = { serverId, name, note ->
+                vm.createContact(serverId, name, note)
+                showAddDialog = false
             }
         )
     }
@@ -333,26 +340,106 @@ internal fun ContactsScreen(
     }
 
     menuContact?.let { contact ->
+        val sid = menuServerId
         AlertDialog(
-            onDismissRequest = { menuContact = null },
+            onDismissRequest = {
+                menuContact = null
+                menuServerId = null
+            },
             title = { Text(contact.playerName) },
             text = {
                 Column {
+                    if (sid != null) {
+                        TextButton(onClick = {
+                            openRow(
+                                sid,
+                                ContactRow(contact = contact, online = false, latencyMs = -1)
+                            )
+                            menuContact = null
+                            menuServerId = null
+                        }) { Text("打开私聊") }
+                    }
                     TextButton(onClick = {
                         noteContact = contact
                         menuContact = null
+                        menuServerId = null
                     }) { Text("编辑备注") }
                     TextButton(onClick = {
                         vm.deleteContact(contact.id)
                         menuContact = null
+                        menuServerId = null
                     }) { Text("移除") }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { menuContact = null }) { Text("关闭") }
+                TextButton(onClick = {
+                    menuContact = null
+                    menuServerId = null
+                }) { Text("关闭") }
             }
         )
     }
+}
+
+@Composable
+private fun AddContactDialog(
+    servers: List<ServerConfig>,
+    initialServerId: String,
+    onDismiss: () -> Unit,
+    onConfirm: (serverId: String, name: String, note: String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var serverId by remember { mutableStateOf(initialServerId.ifBlank { servers.firstOrNull()?.id.orEmpty() }) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("添加联系人") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("玩家名") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("备注（可选）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                servers.forEach { server ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { serverId = server.id }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = serverId == server.id, onClick = { serverId = server.id })
+                        Text(server.name)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (serverId.isNotBlank() && name.isNotBlank()) {
+                        onConfirm(serverId, name, note)
+                    }
+                },
+                enabled = serverId.isNotBlank() && name.isNotBlank()
+            ) { Text("添加") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -365,6 +452,7 @@ private fun ContactListRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = UiConstants.MIN_TOUCH_TARGET_DP.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
