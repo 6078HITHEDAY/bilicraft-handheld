@@ -10,21 +10,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,10 +42,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilicraft.handheld.config.ServerContact
 import com.bilicraft.handheld.protocol.RosterPlayer
 import com.bilicraft.handheld.ui.MainViewModel
-import com.bilicraft.handheld.ui.chat.DmChatScreen
 import com.bilicraft.handheld.ui.chat.PlayerAvatar
 import com.bilicraft.handheld.ui.common.EmptyState
 import com.bilicraft.handheld.ui.common.ScreenHeader
+import com.bilicraft.handheld.ui.common.UiConstants
 
 private data class ContactRow(
     val contact: ServerContact,
@@ -53,7 +57,7 @@ private data class ContactRow(
 @Composable
 internal fun ContactsScreen(
     vm: MainViewModel,
-    onDetailOpen: (Boolean) -> Unit = {}
+    onOpenDm: (serverId: String, contactId: String) -> Unit
 ) {
     val servers by vm.servers.collectAsStateWithLifecycle()
     val contacts by vm.contacts.collectAsStateWithLifecycle()
@@ -71,30 +75,31 @@ internal fun ContactsScreen(
             roster = roster
         )
     }
-
-    var openContactId by remember { mutableStateOf<String?>(null) }
-    var menuContact by remember { mutableStateOf<ServerContact?>(null) }
-    var showServerPicker by remember { mutableStateOf(false) }
-
-    val openContact = scoped.firstOrNull { it.contact.id == openContactId }?.contact
-        ?: contacts.firstOrNull { it.id == openContactId }
-    val dmOpen = openContact != null && servers.any { it.id == openContact.serverId }
-    LaunchedEffect(dmOpen) { onDetailOpen(dmOpen) }
-    if (openContact != null) {
-        val server = servers.firstOrNull { it.id == openContact.serverId }
-        if (server != null) {
-            DmChatScreen(
-                vm = vm,
-                server = server,
-                contact = openContact,
-                onBack = { openContactId = null }
+    val grouped = remember(contacts, servers, runtime.rosters, preferences.contactsGroupByServer) {
+        if (!preferences.contactsGroupByServer) emptyMap()
+        else servers.associateWith { server ->
+            mergeContactRows(
+                serverId = server.id,
+                contacts = contacts.filter { it.serverId == server.id },
+                roster = runtime.rosters[server.id].orEmpty()
             )
-            return
-        }
+        }.filterValues { it.isNotEmpty() }
     }
 
+    var menuContact by remember { mutableStateOf<ServerContact?>(null) }
+    var noteContact by remember { mutableStateOf<ServerContact?>(null) }
+    var showServerPicker by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(false) }
+
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(title = "联系人")
+        ScreenHeader(
+            title = "联系人",
+            actions = {
+                IconButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "添加联系人")
+                }
+            }
+        )
 
         if (servers.isEmpty()) {
             Column(
@@ -105,7 +110,7 @@ internal fun ContactsScreen(
                 Text("还没有服务器", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "连接频道后会自动识别在线玩家，无需手动添加。",
+                    "连接频道后会自动识别在线玩家，也可手动添加。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -116,6 +121,7 @@ internal fun ContactsScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = UiConstants.MIN_TOUCH_TARGET_DP.dp)
                 .clickable { showServerPicker = true }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -128,65 +134,85 @@ internal fun ContactsScreen(
                     fontWeight = FontWeight.SemiBold
                 )
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null)
+            Icon(Icons.Default.ChevronRight, contentDescription = "选择主服务器")
+        }
+        HorizontalDivider()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("按服务器分组", modifier = Modifier.weight(1f))
+            Switch(
+                checked = preferences.contactsGroupByServer,
+                onCheckedChange = vm::setContactsGroupByServer
+            )
         }
         HorizontalDivider()
 
-        val onlineCount = scoped.count { it.online }
-        Text(
-            text = if (scoped.isEmpty()) "连接后自动同步成员"
-            else "在线 $onlineCount · 共 ${scoped.size} 人",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
-
-        if (scoped.isEmpty()) {
-            EmptyState(
-                title = "暂无联系人",
-                message = "进入「${primaryServer?.name ?: "频道"}」并连接后，会从服务器名单自动识别玩家。"
-            )
-        } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(scoped, key = { it.contact.id }) { row ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .combinedClickable(
+        if (preferences.contactsGroupByServer) {
+            if (grouped.isEmpty()) {
+                EmptyState(
+                    title = "暂无联系人",
+                    message = "连接频道或手动添加后会显示在此。"
+                )
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    grouped.forEach { (server, rows) ->
+                        item(key = "header-${server.id}") {
+                            Text(
+                                server.name,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                            )
+                        }
+                        items(rows, key = { "${server.id}-${it.contact.id}" }) { row ->
+                            ContactListRow(
+                                row = row,
                                 onClick = {
-                                    val sid = primaryServerId ?: return@combinedClickable
-                                    vm.openAutoContact(sid, row.contact.playerName, row.contact.id) {
-                                        openContactId = it.id
+                                    vm.openAutoContact(server.id, row.contact.playerName, row.contact.id) {
+                                        onOpenDm(server.id, it.id)
                                     }
                                 },
                                 onLongClick = { menuContact = row.contact }
                             )
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PlayerAvatar(name = row.contact.playerName, online = row.online, size = 42.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                row.contact.playerName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = when {
-                                    row.online && row.latencyMs >= 0 -> "在线 · ${row.latencyMs} ms"
-                                    row.online -> "在线"
-                                    else -> "离线"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (row.online) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            HorizontalDivider()
                         }
                     }
-                    HorizontalDivider()
+                }
+            }
+        } else {
+            val onlineCount = scoped.count { it.online }
+            Text(
+                text = if (scoped.isEmpty()) "连接后自动同步成员"
+                else "在线 $onlineCount · 共 ${scoped.size} 人",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            if (scoped.isEmpty()) {
+                EmptyState(
+                    title = "暂无联系人",
+                    message = "进入「${primaryServer?.name ?: "频道"}」并连接后，会从服务器名单自动识别玩家。"
+                )
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(scoped, key = { it.contact.id }) { row ->
+                        ContactListRow(
+                            row = row,
+                            onClick = {
+                                val sid = primaryServerId ?: return@ContactListRow
+                                vm.openAutoContact(sid, row.contact.playerName, row.contact.id) {
+                                    onOpenDm(sid, it.id)
+                                }
+                            },
+                            onLongClick = { menuContact = row.contact }
+                        )
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -228,18 +254,152 @@ internal fun ContactsScreen(
         )
     }
 
+    if (showAddDialog) {
+        var name by remember { mutableStateOf("") }
+        var note by remember { mutableStateOf("") }
+        var serverId by remember { mutableStateOf(primaryServerId.orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("添加联系人") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("玩家名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        label = { Text("备注（可选）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    servers.forEach { server ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { serverId = server.id }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = serverId == server.id, onClick = { serverId = server.id })
+                            Text(server.name)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (serverId.isNotBlank() && name.isNotBlank()) {
+                        vm.createContact(serverId, name, note)
+                        showAddDialog = false
+                    }
+                }) { Text("添加") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    noteContact?.let { contact ->
+        var note by remember(contact.id) { mutableStateOf(contact.note) }
+        AlertDialog(
+            onDismissRequest = { noteContact = null },
+            title = { Text("编辑备注 · ${contact.playerName}") },
+            text = {
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("备注") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.saveContact(contact.copy(note = note))
+                    noteContact = null
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { noteContact = null }) { Text("取消") }
+            }
+        )
+    }
+
     menuContact?.let { contact ->
         AlertDialog(
             onDismissRequest = { menuContact = null },
             title = { Text(contact.playerName) },
-            text = { Text("从本机通讯录移除（不影响服务器名单；下次上线会再次同步）。") },
-            confirmButton = {
-                TextButton(onClick = { vm.deleteContact(contact.id); menuContact = null }) { Text("移除") }
+            text = {
+                Column {
+                    TextButton(onClick = {
+                        noteContact = contact
+                        menuContact = null
+                    }) { Text("编辑备注") }
+                    TextButton(onClick = {
+                        vm.deleteContact(contact.id)
+                        menuContact = null
+                    }) { Text("移除") }
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { menuContact = null }) { Text("取消") }
+            confirmButton = {
+                TextButton(onClick = { menuContact = null }) { Text("关闭") }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ContactListRow(
+    row: ContactRow,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PlayerAvatar(name = row.contact.playerName, online = row.online, size = 42.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                row.contact.playerName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = buildString {
+                    append(
+                        when {
+                            row.online && row.latencyMs >= 0 -> "在线 · ${row.latencyMs} ms"
+                            row.online -> "在线"
+                            else -> "离线"
+                        }
+                    )
+                    if (row.contact.note.isNotBlank()) {
+                        append(" · ")
+                        append(row.contact.note)
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (row.online) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -258,7 +418,6 @@ private fun mergeContactRows(
             latencyMs = match?.latencyMs ?: -1
         )
     }.toMutableList()
-    // 名单里有、本地尚未落盘的瞬间：也展示出来（ensureContact 异步补齐）
     roster.filter { it.online }.forEach { player ->
         val exists = rows.any {
             it.contact.id == player.uuid ||
