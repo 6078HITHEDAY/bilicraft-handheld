@@ -14,6 +14,9 @@ object UiConstants {
     const val CDK_ACTIVE_WINDOW_REFRESH_MS = 60_000L
     const val WIDE_LAYOUT_MIN_WIDTH_DP = 600
     const val MIN_TOUCH_TARGET_DP = 48
+    const val NAV_TRANSITION_MS = 220
+    const val CHANNEL_PING_TTL_MS = 60_000L
+    const val CHANNEL_PING_TTL_LOW_POWER_MS = 5 * 60_000L
 
     fun clampMaxUiLog(limit: Int): Int = limit.coerceIn(MAX_UI_LOG_MIN, MAX_UI_LOG_MAX)
 }

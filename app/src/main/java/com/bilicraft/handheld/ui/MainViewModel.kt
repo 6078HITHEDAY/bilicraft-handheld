@@ -44,9 +44,9 @@ import com.bilicraft.handheld.update.DownloadSource
 import com.bilicraft.handheld.update.ReleaseInfo
 import com.bilicraft.handheld.update.UpdateState
 import java.io.File
-import java.util.UUID
 import com.bilicraft.handheld.version.McVersion
 import com.bilicraft.handheld.version.VersionRepository
+import com.bilicraft.handheld.ui.common.UiConstants
 import com.bilicraft.handheld.ui.vm.ChatStateHolder
 import com.bilicraft.handheld.ui.vm.ContactsStateHolder
 import com.bilicraft.handheld.ui.vm.SettingsStateHolder
@@ -226,15 +226,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun markChannelRead(serverId: String) {
         val latest = _serverRuntime.value.chatLogs[serverId]?.lastOrNull()?.timestamp ?: System.currentTimeMillis()
-        viewModelScope.launch { uiConfigRepo.markChannelRead(serverId, latest) }
+        chatHolder.markChannelRead(serverId, latest)
     }
 
     fun togglePinnedChannel(serverId: String) {
-        viewModelScope.launch { uiConfigRepo.togglePinnedChannel(serverId) }
+        chatHolder.togglePinnedChannel(serverId)
     }
 
     fun toggleArchivedChannel(serverId: String) {
-        viewModelScope.launch { uiConfigRepo.toggleArchivedChannel(serverId) }
+        chatHolder.toggleArchivedChannel(serverId)
     }
 
     fun clearChannelChat(serverId: String) {
@@ -259,11 +259,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setContactsGroupByServer(enabled: Boolean) {
-        viewModelScope.launch { uiConfigRepo.setContactsGroupByServer(enabled) }
+        settingsHolder.setContactsGroupByServer(enabled)
     }
 
     fun setQuickReplies(replies: List<String>) {
-        viewModelScope.launch { uiConfigRepo.setQuickReplies(replies) }
+        settingsHolder.setQuickReplies(replies)
     }
 
     private suspend fun mirrorSessionEvents() {
@@ -319,7 +319,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ?: ANGLE_SENDER.find(tagged.plainText)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
             ?: return
         if (contactName.equals(self, ignoreCase = true)) return
-        viewModelScope.launch { ensureContact(serverId, contactName) }
+        contactsHolder.ensureContactAsync(serverId, contactName)
     }
 
     private fun isDuplicateDm(log: List<ChatEvent>, incoming: ChatEvent, peer: String): Boolean {
@@ -355,7 +355,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 event.players.forEach { player ->
                     if (player.name.isNotBlank()) {
-                        viewModelScope.launch { ensureContact(serverId, player.name, player.uuid) }
+                        contactsHolder.ensureContactAsync(serverId, player.name, player.uuid)
                     }
                 }
             }
@@ -376,28 +376,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun ensureContact(serverId: String, playerName: String, uuid: String? = null): ServerContact? {
-        val name = playerName.trim()
-        if (name.isEmpty()) return null
-        val existing = uiConfigRepo.contacts.value.firstOrNull {
-            it.serverId == serverId && it.playerName.equals(name, ignoreCase = true)
-        }
-        if (existing != null) return existing
-        val created = ServerContact(
-            id = uuid ?: UUID.randomUUID().toString(),
-            serverId = serverId,
-            playerName = name,
-            note = ""
-        )
-        uiConfigRepo.upsertContact(created)
-        return created
-    }
-
     /** 从 Tab 名单/群成员点进私聊：自动建联系人，无需手动输入。 */
     fun openAutoContact(serverId: String, playerName: String, uuid: String? = null, onReady: (ServerContact) -> Unit) {
-        viewModelScope.launch {
-            ensureContact(serverId, playerName, uuid)?.let(onReady)
-        }
+        contactsHolder.openAutoContact(serverId, playerName, uuid, onReady)
     }
 
     private fun markServerState(serverId: String, state: ConnectionState) {
@@ -451,31 +432,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setChatAutoScroll(enabled: Boolean) {
-        viewModelScope.launch {
-            uiConfigRepo.setChatAutoScroll(enabled)
-            _uiMessage.value = if (enabled) "聊天将自动滚动到最新消息" else "聊天自动滚动已关闭"
-        }
+        settingsHolder.setChatAutoScroll(enabled)
+        _uiMessage.value = if (enabled) "聊天将自动滚动到最新消息" else "聊天自动滚动已关闭"
     }
 
     fun setCommandCompletionEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            uiConfigRepo.setCommandCompletionEnabled(enabled)
-            if (!enabled) {
-                _commandSuggestions.value = CommandSuggestions.Empty
-                session.requestCommandSuggestions("")
-            }
-            _uiMessage.value = if (enabled) "命令补全已开启" else "命令补全已关闭"
+        settingsHolder.setCommandCompletionEnabled(enabled)
+        if (!enabled) {
+            _commandSuggestions.value = CommandSuggestions.Empty
+            session.requestCommandSuggestions("")
         }
+        _uiMessage.value = if (enabled) "命令补全已开启" else "命令补全已关闭"
     }
 
     fun setBackgroundLowPowerEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            uiConfigRepo.setBackgroundLowPowerEnabled(enabled)
-            _uiMessage.value = if (enabled) {
-                "低能耗挂后台已开启，退到后台或息屏后生效"
-            } else {
-                "低能耗挂后台已关闭，后台将保持全功率连接"
-            }
+        settingsHolder.setBackgroundLowPowerEnabled(enabled)
+        _uiMessage.value = if (enabled) {
+            "低能耗挂后台已开启，退到后台或息屏后生效"
+        } else {
+            "低能耗挂后台已关闭，后台将保持全功率连接"
         }
     }
 
@@ -684,7 +659,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
         val payload = if (trimmed.startsWith("/")) trimmed else "/msg $peer $trimmed"
         dispatchChat(serverId, payload)
-        viewModelScope.launch { ensureContact(serverId, peer) }
+        contactsHolder.ensureContactAsync(serverId, peer)
     }
 
     private fun dispatchChat(serverId: String, text: String) {
@@ -717,7 +692,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setPrimaryContactServerId(serverId: String) {
-        viewModelScope.launch { uiConfigRepo.setPrimaryContactServerId(serverId) }
+        settingsHolder.setPrimaryContactServerId(serverId)
     }
 
     fun createContact(serverId: String, playerName: String, note: String = "") {
@@ -751,9 +726,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // 节流：短时间内已有结果（含低能耗模式的更长 TTL）则跳过，避免每次进聊天页都全量 ping。
             val now = SystemClock.elapsedRealtime()
             val ttlMs = if (uiConfigRepo.preferences.value.backgroundLowPowerEnabled) {
-                CHANNEL_PING_TTL_LOW_POWER_MS
+                UiConstants.CHANNEL_PING_TTL_LOW_POWER_MS
             } else {
-                CHANNEL_PING_TTL_MS
+                UiConstants.CHANNEL_PING_TTL_MS
             }
             val cached = _channelPings.value[server.id]
             if (cached != null && now - cached.refreshedAtMillis < ttlMs) return@launch
@@ -824,22 +799,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setDownloadSource(source: DownloadSource) {
-        viewModelScope.launch {
-            uiConfigRepo.setDownloadSource(source)
-            _uiMessage.value = "下载线路已切换为「${source.displayName}」"
-        }
+        settingsHolder.setDownloadSource(source)
+        _uiMessage.value = "下载线路已切换为「${source.displayName}」"
     }
 
     fun setThemeMode(themeMode: ThemeMode) {
-        viewModelScope.launch {
-            uiConfigRepo.setThemeMode(themeMode)
-        }
+        settingsHolder.setThemeMode(themeMode)
     }
 
     fun setPluginPanelLayout(layout: PluginPanelLayout) {
-        viewModelScope.launch {
-            uiConfigRepo.setPluginPanelLayout(layout)
-        }
+        settingsHolder.setPluginPanelLayout(layout)
     }
 
     fun selectAppIcon(icon: AppIcon) {
@@ -970,9 +939,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private companion object {
-        /** 频道列表 ping 结果的缓存时长：正常模式 60s，低能耗模式 5min。 */
-        const val CHANNEL_PING_TTL_MS = 60_000L
-        const val CHANNEL_PING_TTL_LOW_POWER_MS = 5 * 60_000L
         val ANGLE_SENDER = Regex("""^<([^>\n]{1,32})>\s?(.*)$""", RegexOption.DOT_MATCHES_ALL)
     }
 }

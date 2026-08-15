@@ -74,7 +74,7 @@ fun MainScreen(vm: MainViewModel) {
     }
     val pendingDeepLink by vm.pendingDeepLinkServerId.collectAsStateWithLifecycle()
     val activePlugin by vm.activeExternalPluginPanel.collectAsStateWithLifecycle()
-    val navAnimMs = motionDurationMs(220)
+    val navAnimMs = motionDurationMs(com.bilicraft.handheld.ui.common.UiConstants.NAV_TRANSITION_MS)
 
     LaunchedEffect(uiMessage) {
         val message = uiMessage ?: return@LaunchedEffect
