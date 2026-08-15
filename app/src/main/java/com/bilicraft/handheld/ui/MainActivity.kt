@@ -1,32 +1,31 @@
 package com.bilicraft.handheld.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bilicraft.handheld.AppContainer
-import com.bilicraft.handheld.config.ThemeMode
+import com.bilicraft.handheld.config.NotificationTapBehavior
+import com.bilicraft.handheld.ui.nav.DeepLinkExtras
+import com.bilicraft.handheld.ui.theme.BilicraftTheme
 
 /**
  * 唯一入口 Activity：初始化依赖容器、申请通知权限、承载 Compose UI。
- * 纯 UI 美化：这里定义 Material 3 品牌色；业务状态仍来自 AppContainer 中的既有模块。
  */
 class MainActivity : ComponentActivity() {
+
+    private val vm: MainViewModel by viewModels()
 
     private val notifPermLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 用户选择即可 */ }
@@ -35,21 +34,30 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppContainer.init(applicationContext)
         requestNotificationPermissionIfNeeded()
+        handleDeepLink(intent)
 
         setContent {
-            val vm: MainViewModel = viewModel()
             val preferences by vm.preferences.collectAsStateWithLifecycle()
-            val dark = when (preferences.themeMode) {
-                ThemeMode.System -> isSystemInDarkTheme()
-                ThemeMode.Light -> false
-                ThemeMode.Dark -> true
-            }
-            MaterialTheme(colorScheme = if (dark) BilicraftDarkColors else BilicraftLightColors) {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            BilicraftTheme(themeMode = preferences.themeMode) {
+                Surface(Modifier.fillMaxSize()) {
                     AppRoot(vm)
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        if (intent == null) return
+        if (vm.preferences.value.notificationTapBehavior != NotificationTapBehavior.OpenChannel) return
+        val serverId = intent.getStringExtra(DeepLinkExtras.SERVER_ID) ?: return
+        vm.offerDeepLinkServerId(serverId)
+        intent.removeExtra(DeepLinkExtras.SERVER_ID)
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -61,19 +69,3 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
-private val BilicraftLightColors = lightColorScheme(
-    primary = Color(0xFF1B6EF3),
-    secondary = Color(0xFF006B5F),
-    tertiary = Color(0xFF7A5C00),
-    surface = Color(0xFFFFFBFF),
-    surfaceVariant = Color(0xFFE7EFFD)
-)
-
-private val BilicraftDarkColors = darkColorScheme(
-    primary = Color(0xFF9CC2FF),
-    secondary = Color(0xFF72D8C8),
-    tertiary = Color(0xFFE8C45C),
-    surface = Color(0xFF101318),
-    surfaceVariant = Color(0xFF263142)
-)
