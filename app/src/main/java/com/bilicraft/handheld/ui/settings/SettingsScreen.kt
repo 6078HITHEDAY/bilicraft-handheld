@@ -73,7 +73,6 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.bilicraft.handheld.appicon.AppIcon
 import com.bilicraft.handheld.cdk.CdkEntry
 import com.bilicraft.handheld.cdk.CdkState
-import com.bilicraft.handheld.config.ThemeMode
 import com.bilicraft.handheld.ui.MainViewModel
 import com.bilicraft.handheld.ui.chat.PlayerAvatar
 import com.bilicraft.handheld.ui.common.SectionTitle
@@ -193,80 +192,26 @@ internal fun SettingsScreen(
     }
 
     if (showThemePicker) {
-        AlertDialog(
-            onDismissRequest = { showThemePicker = false },
-            title = { Text("外观主题") },
-            text = {
-                Column {
-                    ThemeMode.entries.forEach { themeMode ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    vm.setThemeMode(themeMode)
-                                    showThemePicker = false
-                                }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = preferences.themeMode == themeMode,
-                                onClick = {
-                                    vm.setThemeMode(themeMode)
-                                    showThemePicker = false
-                                }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(themeMode.displayName)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showThemePicker = false }) { Text("关闭") }
-            }
+        ThemeModeDialog(
+            current = preferences.themeMode,
+            onSelect = vm::setThemeMode,
+            onDismiss = { showThemePicker = false }
         )
     }
 
     if (showFontScale) {
-        AlertDialog(
-            onDismissRequest = { showFontScale = false },
-            title = { Text("聊天字号") },
-            text = {
-                Column {
-                    listOf(0.9f to "小", 1f to "标准", 1.15f to "大", 1.3f to "更大").forEach { (scale, label) ->
-                        TextButton(onClick = {
-                            vm.setChatFontScale(scale)
-                            showFontScale = false
-                        }) {
-                            Text("$label (${(scale * 100).toInt()}%)")
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showFontScale = false }) { Text("关闭") }
-            }
+        ChatFontScaleDialog(
+            current = preferences.chatFontScale,
+            onSelect = vm::setChatFontScale,
+            onDismiss = { showFontScale = false }
         )
     }
 
     if (showLogLimit) {
-        AlertDialog(
-            onDismissRequest = { showLogLimit = false },
-            title = { Text("聊天记录上限") },
-            text = {
-                Column {
-                    listOf(200, 500, 1000, 2000).forEach { limit ->
-                        TextButton(onClick = {
-                            vm.setMaxUiLog(limit)
-                            showLogLimit = false
-                        }) { Text("$limit 条") }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showLogLimit = false }) { Text("关闭") }
-            }
+        MaxUiLogDialog(
+            current = preferences.maxUiLog,
+            onSelect = vm::setMaxUiLog,
+            onDismiss = { showLogLimit = false }
         )
     }
 
@@ -307,24 +252,10 @@ internal fun SettingsScreen(
     }
 
     if (showNotifBehavior) {
-        AlertDialog(
-            onDismissRequest = { showNotifBehavior = false },
-            title = { Text("通知点击行为") },
-            text = {
-                Column {
-                    TextButton(onClick = {
-                        vm.setNotificationTapBehavior(com.bilicraft.handheld.config.NotificationTapBehavior.OpenHome)
-                        showNotifBehavior = false
-                    }) { Text("打开应用主页") }
-                    TextButton(onClick = {
-                        vm.setNotificationTapBehavior(com.bilicraft.handheld.config.NotificationTapBehavior.OpenChannel)
-                        showNotifBehavior = false
-                    }) { Text("打开对应频道") }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showNotifBehavior = false }) { Text("关闭") }
-            }
+        NotificationTapDialog(
+            current = preferences.notificationTapBehavior,
+            onSelect = vm::setNotificationTapBehavior,
+            onDismiss = { showNotifBehavior = false }
         )
     }
 

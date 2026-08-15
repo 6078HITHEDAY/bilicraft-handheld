@@ -13,18 +13,14 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.bilicraft.handheld.appicon.AppIcon
 import com.bilicraft.handheld.auth.AccountSummary
 import com.bilicraft.handheld.cdk.CdkState
 import com.bilicraft.handheld.config.NotificationTapBehavior
 import com.bilicraft.handheld.config.UiPreferences
 import com.bilicraft.handheld.ui.MainViewModel
-import com.bilicraft.handheld.ui.chat.PlayerAvatar
 import com.bilicraft.handheld.ui.common.PreferenceRow
 import com.bilicraft.handheld.ui.common.SectionTitle
 import com.bilicraft.handheld.ui.common.SettingAction
@@ -38,28 +34,22 @@ internal fun AccountSection(
     onRequestRemove: (String) -> Unit
 ) {
     Column(Modifier.fillMaxWidth()) {
-        SectionTitle("账号管理")
-        if (accounts.isEmpty()) {
-            ListItem(
-                headlineContent = { Text("当前账号") },
-                supportingContent = { Text(vm.currentAccountName) },
-                leadingContent = {
-                    val name = vm.currentAccountName
-                    if (name.isNotBlank() && name != "未登录") {
-                        PlayerAvatar(name = name, online = true, size = 40.dp)
-                    } else {
-                        Icon(Icons.Default.AccountCircle, contentDescription = null)
-                    }
-                }
-            )
-        } else {
-            accounts.forEach { account ->
-                AccountRow(
-                    account = account,
-                    onSwitch = { vm.switchAccount(account.uuid) },
-                    onRemove = { onRequestRemove(account.uuid) }
+        SettingSection(title = "账号管理") {
+            if (accounts.isEmpty()) {
+                PreferenceRow(
+                    title = "当前账号",
+                    subtitle = vm.currentAccountName,
+                    icon = Icons.Default.AccountCircle
                 )
-                HorizontalDivider()
+            } else {
+                accounts.forEach { account ->
+                    AccountRow(
+                        account = account,
+                        onSwitch = { vm.switchAccount(account.uuid) },
+                        onRemove = { onRequestRemove(account.uuid) }
+                    )
+                    HorizontalDivider()
+                }
             }
         }
         SettingActions(

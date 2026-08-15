@@ -1,5 +1,6 @@
 package com.bilicraft.handheld.ui.vm
 
+import com.bilicraft.handheld.config.NotificationTapBehavior
 import com.bilicraft.handheld.config.ServerConfig
 import com.bilicraft.handheld.config.UiConfigRepository
 import com.bilicraft.handheld.protocol.ChatEvent
@@ -86,5 +87,9 @@ class SettingsStateHolder(
                 com.bilicraft.handheld.ui.common.UiConstants.clampMaxUiLog(limit)
             )
         }
+    }
+
+    fun setNotificationTapBehavior(behavior: NotificationTapBehavior) {
+        scope.launch { uiConfigRepo.setNotificationTapBehavior(behavior) }
     }
 }

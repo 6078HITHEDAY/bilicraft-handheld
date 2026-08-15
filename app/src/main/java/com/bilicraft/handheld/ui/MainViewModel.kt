@@ -255,7 +255,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setNotificationTapBehavior(behavior: com.bilicraft.handheld.config.NotificationTapBehavior) {
-        viewModelScope.launch { uiConfigRepo.setNotificationTapBehavior(behavior) }
+        settingsHolder.setNotificationTapBehavior(behavior)
     }
 
     fun setContactsGroupByServer(enabled: Boolean) {

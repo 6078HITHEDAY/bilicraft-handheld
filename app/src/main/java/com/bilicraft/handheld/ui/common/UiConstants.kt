@@ -5,6 +5,7 @@ object UiConstants {
     const val MAX_UI_LOG_DEFAULT = 500
     const val MAX_UI_LOG_MIN = 100
     const val MAX_UI_LOG_MAX = 5000
+    val MAX_UI_LOG_PRESETS: List<Int> = listOf(200, 500, 1000, 2000)
     const val BUBBLE_WIDTH_FRACTION = 0.78f
     const val PLUGIN_PANEL_WIDTH_FRACTION = 0.82f
     const val PLUGIN_PANEL_MAX_WIDTH_DP = 420
