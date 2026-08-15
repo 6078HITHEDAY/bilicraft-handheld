@@ -70,11 +70,19 @@ class ChatCoordinator(
 
     fun store(serverId: String): ChatStore = synchronized(stores) {
         stores.getOrPut(serverId) { ChatStore(File(filesDir, "chat/$serverId")) }
-    }.also { _activeStore.value = it }
+    }
 
     fun activate(serverId: String?) {
-        if (serverId != null) store(serverId)
-        else _activeStore.value = null
+        _activeStore.value = if (serverId != null) store(serverId) else null
+    }
+
+    fun dropStore(serverId: String) {
+        val removed = synchronized(stores) { stores.remove(serverId) }
+        synchronized(echoByServer) { echoByServer.remove(serverId) }
+        File(filesDir, "chat/$serverId").deleteRecursively()
+        if (removed != null && _activeStore.value === removed) {
+            _activeStore.value = null
+        }
     }
 
     fun send(serverId: String, conversationId: String, text: String): Boolean {
@@ -83,8 +91,7 @@ class ChatCoordinator(
         if (session.connState.value !is ConnectionState.Connected) return false
         if (activeServerId() != serverId) return false
         val store = store(serverId)
-        val conversation = store.conversation(conversationId)
-            ?: return sendPublic(serverId, trimmed)
+        val conversation = resolveConversation(store, conversationId) ?: return false
         val isCommand = trimmed.startsWith("/")
         val wire = when {
             isCommand -> trimmed
@@ -95,7 +102,7 @@ class ChatCoordinator(
             else -> trimmed
         }
         val outgoing = store.appendOutgoing(
-            conversationId = conversationId,
+            conversationId = conversation.id,
             kind = conversation.kind,
             title = conversation.title,
             peerName = conversation.peerName,
@@ -103,14 +110,39 @@ class ChatCoordinator(
             isCommand = isCommand
         )
         echoFor(serverId).track(
-            PendingSend(outgoing.id, conversationId, ChatEchoMatcher.normalize(trimmed), System.currentTimeMillis())
+            PendingSend(outgoing.id, conversation.id, ChatEchoMatcher.normalize(trimmed), System.currentTimeMillis())
         )
         session.sendChat(wire)
         return true
     }
 
+    private fun resolveConversation(store: ChatStore, conversationId: String): Conversation? {
+        store.conversation(conversationId)?.let { return it }
+        return when {
+            conversationId == ConversationIds.PUBLIC || conversationId == ConversationIds.SYSTEM -> {
+                store.ensurePublicAndSystem()
+                store.conversation(conversationId)
+            }
+            conversationId.startsWith("whisper:") -> {
+                val peer = conversationId.removePrefix("whisper:")
+                if (peer.isBlank()) null
+                else store.ensureConversation(conversationId, ConversationKind.Whisper, peer, peerName = peer)
+            }
+            conversationId.startsWith("channel:") -> {
+                val channel = conversationId.removePrefix("channel:")
+                if (channel.isBlank()) null
+                else store.ensureConversation(conversationId, ConversationKind.Channel, channel, channelName = channel)
+            }
+            else -> null
+        }
+    }
+
     fun replyFromNotification(serverId: String, conversationId: String, text: String) {
-        scope.launch { send(serverId, conversationId, text) }
+        scope.launch {
+            if (!send(serverId, conversationId, text)) {
+                notifications.notifySendFailed(serverId, conversationId, "未能发送，请确认已连接该服务器")
+            }
+        }
     }
 
     fun ingestPing(serverId: String, host: String, status: ServerPinger.Status) {
@@ -121,23 +153,6 @@ class ChatCoordinator(
         session.onlinePlayers.value.values.firstOrNull { it.name.equals(name, ignoreCase = true) }?.uuid
 
     fun onlinePlayers(): Map<String, OnlinePlayer> = session.onlinePlayers.value
-
-    private fun sendPublic(serverId: String, text: String): Boolean {
-        val store = store(serverId)
-        val outgoing = store.appendOutgoing(
-            conversationId = ConversationIds.PUBLIC,
-            kind = ConversationKind.Public,
-            title = "公屏聊天",
-            peerName = null,
-            text = text,
-            isCommand = text.startsWith("/")
-        )
-        echoFor(serverId).track(
-            PendingSend(outgoing.id, ConversationIds.PUBLIC, ChatEchoMatcher.normalize(text), System.currentTimeMillis())
-        )
-        session.sendChat(text)
-        return true
-    }
 
     private fun onChat(serverId: String?, event: ChatEvent) {
         val id = serverId ?: return

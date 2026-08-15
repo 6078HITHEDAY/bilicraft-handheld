@@ -73,11 +73,18 @@ class ChatStore(
     }
 
     fun markDelivery(messageId: String, status: DeliveryStatus) {
+        var changed = false
         _messages.update { current ->
             current.mapValues { (_, list) ->
-                list.map { if (it.id == messageId) it.copy(delivery = status) else it }
+                list.map { msg ->
+                    if (msg.id == messageId && msg.delivery != status) {
+                        changed = true
+                        msg.copy(delivery = status)
+                    } else msg
+                }
             }
         }
+        if (changed) rewriteJsonl()
     }
 
     fun markRead(conversationId: String) {
@@ -212,7 +219,12 @@ class ChatStore(
         _conversations.value = loaded
         ensurePublicAndSystem()
         val recent = readTailMessages()
-        _messages.value = recent.groupBy { it.conversationId }.mapValues { (_, list) -> list.takeLast(KEEP_IN_MEMORY) }
+        _messages.value = recent
+            .map { msg ->
+                if (msg.delivery == DeliveryStatus.Sending) msg.copy(delivery = DeliveryStatus.Unconfirmed) else msg
+            }
+            .groupBy { it.conversationId }
+            .mapValues { (_, list) -> list.takeLast(KEEP_IN_MEMORY) }
     }
 
     private fun persistConversations() {

@@ -208,7 +208,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         session.events.collect { event ->
             val serverId = event.serverId ?: _serverRuntime.value.activeServerId ?: return@collect
             when (event) {
-                is SessionEvent.State -> markServerState(serverId, event.state)
+                is SessionEvent.State -> {
+                    markServerState(serverId, event.state)
+                    syncActiveServerFromSession(serverId, event.state)
+                }
                 is SessionEvent.Chat -> appendServerChat(serverId, event.event)
                 is SessionEvent.Ping -> {
                     val host = servers.value.firstOrNull { it.id == serverId }?.host.orEmpty()
@@ -238,6 +241,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             current.copy(
                 connectionStates = current.connectionStates + (serverId to state)
             )
+        }
+    }
+
+    /**
+     * Service 续跑 / 重连只驱动 SessionController，ViewModel 的 activeServerId 可能仍是 null。
+     * 用会话状态事件回填，避免详情页误判「未连接」而禁发。
+     */
+    private fun syncActiveServerFromSession(serverId: String, state: ConnectionState) {
+        when (state) {
+            is ConnectionState.Connected,
+            is ConnectionState.Connecting,
+            is ConnectionState.LoggingIn,
+            is ConnectionState.Reconnecting -> {
+                _serverRuntime.update { current ->
+                    if (current.activeServerId == serverId) current
+                    else current.copy(activeServerId = serverId)
+                }
+                // 续跑后若尚未选定聊天服务器，跟连接归属对齐；已手动切换的不抢焦点
+                if (_chatServerId.value == null) selectChatServer(serverId)
+            }
+            is ConnectionState.Disconnected,
+            is ConnectionState.Failed -> {
+                _serverRuntime.update { current ->
+                    if (current.activeServerId == serverId) current.copy(activeServerId = null) else current
+                }
+            }
         }
     }
 
@@ -432,6 +461,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteServer(id: String) {
         viewModelScope.launch {
             uiConfigRepo.deleteServer(id)
+            chatCoordinator.dropStore(id)
             _serverRuntime.update { current ->
                 current.copy(
                     activeServerId = current.activeServerId.takeIf { it != id },
@@ -767,12 +797,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun sendToConversation(conversationId: String, text: String) {
-        val serverId = _chatServerId.value ?: return
+    fun sendToConversation(conversationId: String, text: String): Boolean {
+        val serverId = _chatServerId.value ?: return false
         _commandSuggestions.value = CommandSuggestions.Empty
-        if (!chatCoordinator.send(serverId, conversationId, text)) {
-            _uiMessage.value = "当前无法发送（未连接或会话无效）"
-        }
+        val ok = chatCoordinator.send(serverId, conversationId, text)
+        if (!ok) _uiMessage.value = "当前无法发送（未连接或会话无效）"
+        return ok
     }
 
     fun openWhisper(player: String): String? {

@@ -119,6 +119,10 @@ internal fun ChatDetailScreen(
         vm.markConversationRead(conversationId)
     }
 
+    LaunchedEffect(messages.size, conversationId) {
+        if (messages.isNotEmpty()) vm.markConversationRead(conversationId)
+    }
+
     LaunchedEffect(draft.text, preferences.commandCompletionEnabled, chatServerId) {
         val serverId = chatServerId ?: return@LaunchedEffect
         if (!preferences.commandCompletionEnabled) return@LaunchedEffect
@@ -323,8 +327,7 @@ private fun sendDraft(
         append(text)
     }
     if (body.isBlank()) return
-    vm.sendToConversation(conversationId, body)
-    onSent()
+    if (vm.sendToConversation(conversationId, body)) onSent()
 }
 
 private sealed class ChatRow(val key: String) {

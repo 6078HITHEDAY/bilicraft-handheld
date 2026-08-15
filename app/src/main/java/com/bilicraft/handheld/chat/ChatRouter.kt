@@ -14,13 +14,14 @@ class ChatRouter(
         targetWhisper(event)?.let { return it.copy(muted = muted) }
         regexRoute(event, rules)?.let { return it.copy(muted = muted) }
         if (!event.sender.isNullOrBlank()) {
+            val body = stripChatDecor(event)
             return RoutedChat(
                 conversationId = ConversationIds.PUBLIC,
                 kind = ConversationKind.Public,
                 peerName = null,
                 channelName = null,
-                bodyPlain = event.plainText,
-                bodySpans = event.spans.ifEmpty { listOf(ChatSpan(event.plainText)) },
+                bodyPlain = body.first,
+                bodySpans = body.second,
                 direction = if (event.sender.equals(selfName(), ignoreCase = true)) {
                     MessageDirection.Out
                 } else {

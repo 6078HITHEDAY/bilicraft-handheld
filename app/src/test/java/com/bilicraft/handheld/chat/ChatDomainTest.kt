@@ -71,6 +71,20 @@ class ChatRouterTest {
         )
         assertEquals(ConversationIds.PUBLIC, routed.conversationId)
         assertEquals(ConversationKind.Public, routed.kind)
+        // body must be content-only so optimistic send echo can match
+        assertEquals("hi", routed.bodyPlain)
+    }
+
+    @Test
+    fun `public self echo body matches pending send`() {
+        val matcher = ChatEchoMatcher()
+        matcher.track(
+            PendingSend("m1", ConversationIds.PUBLIC, ChatEchoMatcher.normalize("hi"), System.currentTimeMillis())
+        )
+        val routed = router.route(
+            ChatEvent(plainText = "<Me> hi", rawJson = "", sender = "Me")
+        )
+        assertEquals("m1", matcher.match(routed.conversationId, routed.bodyPlain))
     }
 
     @Test
@@ -143,6 +157,40 @@ class ChatStoreTest {
         val reloaded = ChatStore(dir)
         assertEquals("hi", reloaded.conversation(ConversationIds.whisper("steve"))?.lastPreview)
         assertEquals("hi", reloaded.messagesFor(ConversationIds.whisper("steve")).single().bodyPlain)
+    }
+
+    @Test
+    fun `stale Sending becomes Unconfirmed on reload`() {
+        val dir = kotlin.io.path.createTempDirectory("chat-store-sending").toFile()
+        val store = ChatStore(dir)
+        store.appendOutgoing(
+            conversationId = ConversationIds.PUBLIC,
+            kind = ConversationKind.Public,
+            title = "公屏聊天",
+            peerName = null,
+            text = "pending",
+            isCommand = false
+        )
+        assertEquals(DeliveryStatus.Sending, store.messagesFor(ConversationIds.PUBLIC).single().delivery)
+        val reloaded = ChatStore(dir)
+        assertEquals(DeliveryStatus.Unconfirmed, reloaded.messagesFor(ConversationIds.PUBLIC).single().delivery)
+    }
+
+    @Test
+    fun `markDelivery persists across reload`() {
+        val dir = kotlin.io.path.createTempDirectory("chat-store-delivery").toFile()
+        val store = ChatStore(dir)
+        val outgoing = store.appendOutgoing(
+            conversationId = ConversationIds.PUBLIC,
+            kind = ConversationKind.Public,
+            title = "公屏聊天",
+            peerName = null,
+            text = "ok",
+            isCommand = false
+        )
+        store.markDelivery(outgoing.id, DeliveryStatus.Sent)
+        val reloaded = ChatStore(dir)
+        assertEquals(DeliveryStatus.Sent, reloaded.messagesFor(ConversationIds.PUBLIC).single().delivery)
     }
 }
 

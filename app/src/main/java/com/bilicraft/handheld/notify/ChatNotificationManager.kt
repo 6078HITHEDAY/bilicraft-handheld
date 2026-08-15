@@ -85,6 +85,18 @@ class ChatNotificationManager(private val context: Context) {
         manager.cancel(notificationId(serverId, conversationId))
     }
 
+    fun notifySendFailed(serverId: String, conversationId: String, detail: String) {
+        ensureChannel()
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle("回复失败")
+            .setContentText(detail)
+            .setAutoCancel(true)
+            .setContentIntent(openIntent(serverId, conversationId))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        manager.notify(notificationId(serverId, conversationId) + 1, builder.build())
+    }
+
     private fun ensureChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "聊天消息", NotificationManager.IMPORTANCE_HIGH)
