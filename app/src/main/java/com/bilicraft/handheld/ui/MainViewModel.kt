@@ -216,6 +216,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun unreadCount(serverId: String): Int =
         chatHolder.unreadCount(serverId, preferences.value.lastReadTimestamps)
 
+    fun totalUnreadCount(): Int {
+        val archived = preferences.value.archivedChannelIds.toSet()
+        return servers.value
+            .asSequence()
+            .filter { it.id !in archived }
+            .sumOf { unreadCount(it.id) }
+    }
+
     fun markChannelRead(serverId: String) {
         val latest = _serverRuntime.value.chatLogs[serverId]?.lastOrNull()?.timestamp ?: System.currentTimeMillis()
         viewModelScope.launch { uiConfigRepo.markChannelRead(serverId, latest) }
@@ -252,6 +260,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setContactsGroupByServer(enabled: Boolean) {
         viewModelScope.launch { uiConfigRepo.setContactsGroupByServer(enabled) }
+    }
+
+    fun setQuickReplies(replies: List<String>) {
+        viewModelScope.launch { uiConfigRepo.setQuickReplies(replies) }
     }
 
     private suspend fun mirrorSessionEvents() {

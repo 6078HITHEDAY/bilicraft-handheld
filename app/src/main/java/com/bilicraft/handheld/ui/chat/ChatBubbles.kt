@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -108,6 +107,17 @@ internal fun BubbleChatLog(
     val surface = chatSurfaceColor()
     val defaultText = chatDefaultTextColor()
     val dayFmt = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val dayGroups = remember(classified) {
+        val map = linkedMapOf<String, MutableList<Pair<Int, ClassifiedChat>>>()
+        classified.forEachIndexed { index, item ->
+            val day = dayFmt.format(Date(item.event.timestamp))
+            map.getOrPut(day) { mutableListOf() }.add(index to item)
+        }
+        map.entries.map { it.key to it.value.toList() }
+    }
+    val lastListIndex = remember(dayGroups) {
+        dayGroups.sumOf { 1 + it.second.size } - 1
+    }
 
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -119,11 +129,11 @@ internal fun BubbleChatLog(
             }
         }
     }
-    LaunchedEffect(classified.size, classified.lastOrNull()?.event?.timestamp, autoScroll) {
-        if (autoScroll && followLatestMessage && classified.isNotEmpty()) {
+    LaunchedEffect(classified.size, classified.lastOrNull()?.event?.timestamp, autoScroll, lastListIndex) {
+        if (autoScroll && followLatestMessage && lastListIndex >= 0) {
             autoScrolling = true
             try {
-                listState.scrollToItem(classified.lastIndex)
+                listState.scrollToItem(lastListIndex)
             } finally {
                 autoScrolling = false
                 followLatestMessage = true
@@ -153,29 +163,29 @@ internal fun BubbleChatLog(
                         )
                     }
                 }
-                itemsIndexed(
-                    items = classified,
-                    key = { index, c -> "${c.event.timestamp}|${c.senderLabel}|${c.bodyPlain}|$index" }
-                ) { index, item ->
-                    val day = dayFmt.format(Date(item.event.timestamp))
-                    val prevDay = classified.getOrNull(index - 1)?.let {
-                        dayFmt.format(Date(it.event.timestamp))
+                dayGroups.forEach { (dayKey, entries) ->
+                    stickyHeader(key = "day-$dayKey") {
+                        DateSeparator(dayLabel(entries.first().second.event.timestamp))
                     }
-                    if (day != prevDay) {
-                        DateSeparator(dayLabel(item.event.timestamp))
-                    }
-                    AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
-                        ChatBubble(
-                            item = item,
-                            selfName = selfName,
-                            maxWidth = maxBubbleWidth,
-                            fontScale = fontScale,
-                            onCopy = {
-                                clipboardManager.setText(AnnotatedString(item.event.plainText))
-                                Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
-                            },
-                            onLongClick = { menuItem = item }
-                        )
+                    items(
+                        items = entries,
+                        key = { (index, c) ->
+                            "${c.event.timestamp}|${c.senderLabel}|${c.bodyPlain}|$index"
+                        }
+                    ) { (_, item) ->
+                        AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
+                            ChatBubble(
+                                item = item,
+                                selfName = selfName,
+                                maxWidth = maxBubbleWidth,
+                                fontScale = fontScale,
+                                onCopy = {
+                                    clipboardManager.setText(AnnotatedString(item.event.plainText))
+                                    Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
+                                },
+                                onLongClick = { menuItem = item }
+                            )
+                        }
                     }
                 }
             }
@@ -198,10 +208,10 @@ internal fun BubbleChatLog(
         }
     }
 
-    LaunchedEffect(followLatestMessage, classified.size) {
-        if (followLatestMessage && autoScrolling && classified.isNotEmpty()) {
+    LaunchedEffect(followLatestMessage, lastListIndex) {
+        if (followLatestMessage && autoScrolling && lastListIndex >= 0) {
             try {
-                listState.scrollToItem(classified.lastIndex)
+                listState.scrollToItem(lastListIndex)
             } finally {
                 autoScrolling = false
             }
@@ -223,7 +233,7 @@ internal fun BubbleChatLog(
                         TextButton(onClick = {
                             onForward(item.event.plainText)
                             menuItem = null
-                        }) { Text("转发到当前频道") }
+                        }) { Text("转发到频道…") }
                     }
                     if (onDeleteLocal != null) {
                         TextButton(onClick = {

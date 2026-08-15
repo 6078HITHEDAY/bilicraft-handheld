@@ -64,6 +64,11 @@ fun MainScreen(vm: MainViewModel) {
     val pluginUpdateCount = officialMarket.entries.count { it.updateAvailable }
     val servers by vm.servers.collectAsStateWithLifecycle()
     val contacts by vm.contacts.collectAsStateWithLifecycle()
+    val preferences by vm.preferences.collectAsStateWithLifecycle()
+    val runtime by vm.serverRuntime.collectAsStateWithLifecycle()
+    val chatUnreadTotal = remember(servers, preferences, runtime.chatLogs) {
+        vm.totalUnreadCount()
+    }
     val pendingDeepLink by vm.pendingDeepLinkServerId.collectAsStateWithLifecycle()
     val activePlugin by vm.activeExternalPluginPanel.collectAsStateWithLifecycle()
 
@@ -108,18 +113,30 @@ fun MainScreen(vm: MainViewModel) {
                                 }
                             },
                             icon = {
-                                if (tab == MainTab.Settings && pluginUpdateCount > 0) {
-                                    BadgedBox(
-                                        badge = {
-                                            Badge {
-                                                Text(if (pluginUpdateCount > 9) "9+" else pluginUpdateCount.toString())
+                                when {
+                                    tab == MainTab.Settings && pluginUpdateCount > 0 -> {
+                                        BadgedBox(
+                                            badge = {
+                                                Badge {
+                                                    Text(if (pluginUpdateCount > 9) "9+" else pluginUpdateCount.toString())
+                                                }
                                             }
+                                        ) {
+                                            Icon(tab.icon, contentDescription = tab.title)
                                         }
-                                    ) {
-                                        Icon(tab.icon, contentDescription = tab.title)
                                     }
-                                } else {
-                                    Icon(tab.icon, contentDescription = tab.title)
+                                    tab == MainTab.Chat && chatUnreadTotal > 0 -> {
+                                        BadgedBox(
+                                            badge = {
+                                                Badge {
+                                                    Text(if (chatUnreadTotal > 99) "99+" else chatUnreadTotal.toString())
+                                                }
+                                            }
+                                        ) {
+                                            Icon(tab.icon, contentDescription = tab.title)
+                                        }
+                                    }
+                                    else -> Icon(tab.icon, contentDescription = tab.title)
                                 }
                             },
                             label = { Text(tab.title) }

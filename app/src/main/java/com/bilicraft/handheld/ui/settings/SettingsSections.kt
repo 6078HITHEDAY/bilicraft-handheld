@@ -77,7 +77,8 @@ internal fun ChatSection(
     vm: MainViewModel,
     preferences: UiPreferences,
     onFontScale: () -> Unit,
-    onLogLimit: () -> Unit
+    onLogLimit: () -> Unit,
+    onQuickReplies: () -> Unit
 ) {
     SettingSection(title = "聊天显示") {
         PreferenceRow(
@@ -91,6 +92,12 @@ internal fun ChatSection(
             subtitle = "输入 / 命令时向服务器请求候选项。",
             checked = preferences.commandCompletionEnabled,
             onCheckedChange = vm::setCommandCompletionEnabled
+        )
+        PreferenceRow(
+            title = "快捷回复",
+            subtitle = preferences.quickReplies.joinToString(" · ").ifBlank { "未设置" },
+            onClick = onQuickReplies,
+            trailing = { Icon(Icons.Default.ChevronRight, contentDescription = null) }
         )
         PreferenceRow(
             title = "聊天字号",

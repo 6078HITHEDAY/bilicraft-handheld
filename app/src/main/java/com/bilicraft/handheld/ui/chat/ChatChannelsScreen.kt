@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +52,7 @@ import com.bilicraft.handheld.config.ServerConfig
 import com.bilicraft.handheld.protocol.ConnectionState
 import com.bilicraft.handheld.ui.ChannelPingUi
 import com.bilicraft.handheld.ui.MainViewModel
+import com.bilicraft.handheld.ui.common.ConfirmDialog
 import com.bilicraft.handheld.ui.common.EmptyState
 import com.bilicraft.handheld.ui.common.ScreenHeader
 import com.bilicraft.handheld.ui.common.StatusDot

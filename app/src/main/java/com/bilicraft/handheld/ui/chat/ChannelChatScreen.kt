@@ -40,6 +40,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,8 @@ import com.bilicraft.handheld.ui.common.statusText
 import com.bilicraft.handheld.ui.plugins.PluginEntrypointEdgeToggle
 import com.bilicraft.handheld.ui.plugins.PluginEntrypointSidePanel
 import com.bilicraft.handheld.ui.server.ServerEditorDialog
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 
 private data class GroupMember(
     val name: String,
@@ -91,6 +94,12 @@ internal fun ChannelChatScreen(
     var showMembers by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showSearch by rememberSaveable { mutableStateOf(false) }
+    var forwardPlain by remember { mutableStateOf<String?>(null) }
+    val servers by vm.servers.collectAsStateWithLifecycle()
+
+    LaunchedEffect(server.id) {
+        vm.markChannelRead(server.id)
+    }
 
     val conn = runtime.connectionStates[server.id] ?: ConnectionState.Disconnected
     val selfName = vm.currentAccountName
@@ -163,7 +172,7 @@ internal fun ChannelChatScreen(
                 onDeleteLocal = { event ->
                     vm.removeLocalChatMessage(server.id, event.timestamp, event.plainText)
                 },
-                onForward = { text -> vm.sendChat(server.id, text) },
+                onForward = { text -> forwardPlain = text },
                 modifier = Modifier.weight(1f).fillMaxWidth()
             )
             ChatComposer(
@@ -260,6 +269,38 @@ internal fun ChannelChatScreen(
                     )
                 )
                 editing = false
+            }
+        )
+    }
+
+    forwardPlain?.let { plain ->
+        AlertDialog(
+            onDismissRequest = { forwardPlain = null },
+            title = { Text("转发到频道") },
+            text = {
+                Column {
+                    servers.forEach { target ->
+                        TextButton(
+                            onClick = {
+                                vm.sendChat(target.id, plain)
+                                forwardPlain = null
+                            },
+                            enabled = runtime.activeServerId == target.id &&
+                                runtime.connectionStates[target.id] is ConnectionState.Connected
+                        ) {
+                            Text(
+                                buildString {
+                                    append(target.name)
+                                    if (target.id == server.id) append("（当前）")
+                                    if (runtime.activeServerId != target.id) append(" · 未连接")
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { forwardPlain = null }) { Text("取消") }
             }
         )
     }

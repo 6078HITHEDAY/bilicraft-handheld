@@ -48,6 +48,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -104,6 +105,7 @@ internal fun SettingsScreen(
     var showFontScale by remember { mutableStateOf(false) }
     var showLogLimit by remember { mutableStateOf(false) }
     var showNotifBehavior by remember { mutableStateOf(false) }
+    var showQuickReplies by remember { mutableStateOf(false) }
     val currentAppIcon by vm.currentAppIcon.collectAsStateWithLifecycle()
     val officialMarket by vm.officialMarket.collectAsStateWithLifecycle()
     val pluginUpdateCount = officialMarket.entries.count { it.updateAvailable }
@@ -149,7 +151,15 @@ internal fun SettingsScreen(
             )
         }
 
-        item { ChatSection(vm, preferences, onFontScale = { showFontScale = true }, onLogLimit = { showLogLimit = true }) }
+        item {
+            ChatSection(
+                vm = vm,
+                preferences = preferences,
+                onFontScale = { showFontScale = true },
+                onLogLimit = { showLogLimit = true },
+                onQuickReplies = { showQuickReplies = true }
+            )
+        }
         item { BackgroundSection(vm, preferences, ignoringBatteryOptimizations, onGuide = { showBackgroundLimitGuide = true }) }
         item {
             AppearanceSection(
@@ -256,6 +266,42 @@ internal fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showLogLimit = false }) { Text("关闭") }
+            }
+        )
+    }
+
+    if (showQuickReplies) {
+        var draft by remember(preferences.quickReplies) {
+            mutableStateOf(preferences.quickReplies.joinToString("\n"))
+        }
+        AlertDialog(
+            onDismissRequest = { showQuickReplies = false },
+            title = { Text("快捷回复") },
+            text = {
+                Column {
+                    Text(
+                        "每行一条短语，输入栏「短语」可快速发送。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                        minLines = 4
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val replies = draft.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(12)
+                    vm.setQuickReplies(replies)
+                    showQuickReplies = false
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showQuickReplies = false }) { Text("取消") }
             }
         )
     }
