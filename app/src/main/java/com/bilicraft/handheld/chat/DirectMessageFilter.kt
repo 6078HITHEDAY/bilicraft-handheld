@@ -183,7 +183,7 @@ private val ZH_OUT = Regex(
     RegexOption.DOT_MATCHES_ALL
 )
 private val ZH_IN = Regex(
-    """^(\S+)\s*(?:悄悄地|悄声)?对你说\s*[:：]\s*(.*)$""",
+    """^(\S+?)\s*(?:悄悄地|悄声)?对你说\s*[:：]\s*(.*)$""",
     RegexOption.DOT_MATCHES_ALL
 )
 private val ZH_TO = Regex("""对\s*(\S+)\s*说""")

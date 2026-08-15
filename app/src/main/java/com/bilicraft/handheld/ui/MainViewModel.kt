@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
@@ -76,7 +77,9 @@ data class ChannelPingUi(
     val faviconPng: ByteArray? = null,
     val onlinePlayers: Int = -1,
     val maxPlayers: Int = -1,
-    val motd: String = ""
+    val motd: String = "",
+    /** 本次 ping 完成时间（elapsedRealtime），用于频道列表刷新节流。 */
+    val refreshedAtMillis: Long = 0L
 )
 
 /**
@@ -675,6 +678,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshChannelPing(server: ServerConfig) {
         viewModelScope.launch(Dispatchers.IO) {
+            // 节流：短时间内已有结果（含低能耗模式的更长 TTL）则跳过，避免每次进聊天页都全量 ping。
+            val now = SystemClock.elapsedRealtime()
+            val ttlMs = if (uiConfigRepo.preferences.value.backgroundLowPowerEnabled) {
+                CHANNEL_PING_TTL_LOW_POWER_MS
+            } else {
+                CHANNEL_PING_TTL_MS
+            }
+            val cached = _channelPings.value[server.id]
+            if (cached != null && now - cached.refreshedAtMillis < ttlMs) return@launch
+
             val status = ServerPinger().ping(ServerAddress(server.host, server.port)).getOrNull() ?: return@launch
             val png = ServerFavicon.decodePng(status.favicon) { payload ->
                 Base64.decode(payload, Base64.DEFAULT)
@@ -684,7 +697,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     faviconPng = png,
                     onlinePlayers = status.onlinePlayers,
                     maxPlayers = status.maxPlayers,
-                    motd = status.description
+                    motd = status.description,
+                    refreshedAtMillis = now
                 ))
             }
         }
@@ -887,6 +901,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val MAX_UI_LOG = 500
+        /** 频道列表 ping 结果的缓存时长：正常模式 60s，低能耗模式 5min。 */
+        const val CHANNEL_PING_TTL_MS = 60_000L
+        const val CHANNEL_PING_TTL_LOW_POWER_MS = 5 * 60_000L
         val ANGLE_SENDER = Regex("""^<([^>\n]{1,32})>\s?(.*)$""", RegexOption.DOT_MATCHES_ALL)
     }
 }

@@ -13,8 +13,8 @@ android {
         applicationId = "com.bilicraft.handheld"
         minSdk = 24          // Android 7.0，覆盖绝大多数在用设备
         targetSdk = 34
-        versionCode = 19
-        versionName = "1.0.6"
+        versionCode = 20
+        versionName = "1.0.7"
 
         // PrismLauncher 使用的公开 Azure client_id（开源启动器通用）。
         // 如需替换为自建 Azure 应用，改这里即可，详见 README。
@@ -55,6 +55,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // java.time（Instant.parse 等）在 API 26+ 才有，minSdk 24/25 需 core library desugaring
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -240,4 +242,8 @@ dependencies {
     implementation("org.mozilla:rhino:1.7.15")
 
     testImplementation("junit:junit:4.13.2")
+    // JVM 单测使用真实 org.json（Android 的 android.jar 里是 stub，方法调用会抛 "not mocked"）
+    testImplementation("org.json:json:20240303")
+    // java.time backport：供 minSdk 24/25 设备使用 Instant/ZoneId 等
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

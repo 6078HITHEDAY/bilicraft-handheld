@@ -68,7 +68,7 @@ internal fun classifyChat(ev: ChatEvent, selfName: String): ClassifiedChat {
     )
 }
 
-/** 无 &lt;name&gt; 前缀的进出服/死亡等系统句。 */
+/** 无 &lt;name&gt; 前缀的进出服/死亡/成就等系统句。 */
 private fun isBareSystemNotice(plain: String): Boolean {
     val lower = plain.lowercase()
     return SYSTEM_PATTERNS.any { it.containsMatchIn(lower) }
@@ -77,12 +77,46 @@ private fun isBareSystemNotice(plain: String): Boolean {
 private val ANGLE_SENDER = Regex("""^<([^>\n]{1,32})>\s?(.*)$""", RegexOption.DOT_MATCHES_ALL)
 
 private val SYSTEM_PATTERNS = listOf(
+    // 进出服
     Regex("""\bjoined the game\b"""),
     Regex("""\bleft the game\b"""),
     Regex("""加入了游戏"""),
     Regex("""离开了游戏"""),
-    Regex("""\bhas made the advancement\b"""),
+    // 成就/进度
+    Regex("""\bhas (?:made|completed|reached) the (?:advancement|challenge|goal)\b"""),
+    Regex("""(?:获得了成就|完成了进度|达成进度|达成成就)"""),
+    // 死亡（英文常见变体）
     Regex("""\bwas slain\b"""),
+    Regex("""\bwas killed by\b"""),
+    Regex("""\bburned to death\b"""),
+    Regex("""\bwent up in flames\b"""),
+    Regex("""\bsuffocated\b"""),
+    Regex("""\bwas blown up\b"""),
+    Regex("""\bwas shot by\b"""),
+    Regex("""\bwas squashed\b"""),
+    Regex("""\bwas pricked\b"""),
+    Regex("""\bwas struck by lightning\b"""),
+    Regex("""\bwas pummeled\b"""),
+    Regex("""\bwas knocked off\b"""),
+    Regex("""\bwas doomed to fall\b"""),
     Regex("""\bfell from\b"""),
+    Regex("""\bfell out of the world\b"""),
+    Regex("""\bwithered away\b"""),
+    Regex("""\bwas smacked\b"""),
+    Regex("""\btried to swim in lava\b"""),
+    Regex("""\bwas impaled\b"""),
+    Regex("""\bwas stung\b"""),
     Regex("""\bdrowned\b"""),
+    // 死亡（中文常见变体）
+    Regex("""被(?:[^，。！？\s]{1,12})?杀死了"""),
+    Regex("""被击杀"""),
+    Regex("""被射杀"""),
+    Regex("""被炸死"""),
+    Regex("""被烧死"""),
+    Regex("""被淹死"""),
+    Regex("""被闪电击中"""),
+    Regex("""溺亡"""),
+    Regex("""掉出了世界"""),
+    Regex("""摔死"""),
+    Regex("""窒息而死"""),
 )
