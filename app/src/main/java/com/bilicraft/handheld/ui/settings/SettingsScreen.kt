@@ -89,7 +89,8 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun SettingsScreen(
     vm: MainViewModel,
-    onDetailOpen: (Boolean) -> Unit = {}
+    onOpenPluginCenter: () -> Unit,
+    onOpenAppIconPicker: () -> Unit
 ) {
     val preferences by vm.preferences.collectAsStateWithLifecycle()
     val accountList by vm.accounts.collectAsStateWithLifecycle()
@@ -99,21 +100,18 @@ internal fun SettingsScreen(
     var removingAccountUuid by remember { mutableStateOf<String?>(null) }
     var showSourcePicker by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
-    var showIconPicker by remember { mutableStateOf(false) }
-    var showPluginCenter by remember { mutableStateOf(false) }
     var showBackgroundLimitGuide by remember { mutableStateOf(false) }
+    var showFontScale by remember { mutableStateOf(false) }
+    var showLogLimit by remember { mutableStateOf(false) }
+    var showNotifBehavior by remember { mutableStateOf(false) }
     val currentAppIcon by vm.currentAppIcon.collectAsStateWithLifecycle()
     val officialMarket by vm.officialMarket.collectAsStateWithLifecycle()
     val pluginUpdateCount = officialMarket.entries.count { it.updateAvailable }
 
-    LaunchedEffect(showPluginCenter || showIconPicker) {
-        onDetailOpen(showPluginCenter || showIconPicker)
-    }
-
     LaunchedEffect(Unit) {
         while (true) {
             vm.refreshCdkActiveWindow()
-            delay(CDK_ACTIVE_WINDOW_REFRESH_MS)
+            delay(com.bilicraft.handheld.ui.common.UiConstants.CDK_ACTIVE_WINDOW_REFRESH_MS)
         }
     }
 
@@ -123,78 +121,8 @@ internal fun SettingsScreen(
         onPauseOrDispose { }
     }
 
-    if (showPluginCenter) {
-        LaunchedEffect(Unit) { vm.refreshOfficialPluginMarket(silent = true) }
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .padding(start = 4.dp, end = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { showPluginCenter = false }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                }
-                Text(
-                    text = "插件管理",
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            PluginCenterScreen(vm)
-        }
-        return
-    }
-
-    if (showIconPicker) {
-        AppIconPickerScreen(
-            icons = vm.appIcons,
-            current = currentAppIcon,
-            onSelect = vm::selectAppIcon,
-            onBack = { showIconPicker = false }
-        )
-        return
-    }
-
     LazyColumn(Modifier.fillMaxSize()) {
-        item { SectionTitle("账号管理") }
-        val accounts = accountList
-        if (accounts.isEmpty()) {
-            item {
-                ListItem(
-                    headlineContent = { Text("当前账号") },
-                    supportingContent = { Text(vm.currentAccountName) },
-                    leadingContent = {
-                        val name = vm.currentAccountName
-                        if (name.isNotBlank() && name != "未登录") {
-                            PlayerAvatar(name = name, online = true, size = 40.dp)
-                        } else {
-                            Icon(Icons.Default.AccountCircle, contentDescription = null)
-                        }
-                    }
-                )
-            }
-        } else {
-            items(accounts, key = { it.uuid }) { account ->
-                AccountRow(
-                    account = account,
-                    onSwitch = { vm.switchAccount(account.uuid) },
-                    onRemove = { removingAccountUuid = account.uuid }
-                )
-                HorizontalDivider()
-            }
-        }
-        item {
-            SettingActions(
-                actions = listOf(
-                    SettingAction("添加账号", Icons.Default.Add, vm::addAccount),
-                    SettingAction("刷新 Token", Icons.Default.Refresh, vm::refreshToken),
-                    SettingAction("退出全部", Icons.Default.Delete, vm::logout)
-                )
-            )
-        }
+        item { AccountSection(vm, accountList) { removingAccountUuid = it } }
 
         item { SectionTitle("插件") }
         item {
@@ -217,152 +145,141 @@ internal fun SettingsScreen(
                     }
                 },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-                modifier = Modifier.clickable { showPluginCenter = true }
+                modifier = Modifier.clickable(onClick = onOpenPluginCenter)
             )
         }
 
-        item { SectionTitle("聊天显示") }
+        item { ChatSection(vm, preferences, onFontScale = { showFontScale = true }, onLogLimit = { showLogLimit = true }) }
+        item { BackgroundSection(vm, preferences, ignoringBatteryOptimizations, onGuide = { showBackgroundLimitGuide = true }) }
         item {
-            ListItem(
-                headlineContent = { Text("自动滚动到最新聊天") },
-                supportingContent = { Text("点击消息可复制；关闭后，新消息不会打断你查看历史聊天。") },
-                trailingContent = {
-                    Switch(
-                        checked = preferences.chatAutoScroll,
-                        onCheckedChange = vm::setChatAutoScroll
-                    )
-                }
+            AppearanceSection(
+                preferences = preferences,
+                currentAppIcon = currentAppIcon,
+                onTheme = { showThemePicker = true },
+                onIcon = onOpenAppIconPicker,
+                onNotif = { showNotifBehavior = true }
             )
         }
-        item {
-            ListItem(
-                headlineContent = { Text("命令补全") },
-                supportingContent = { Text("输入 / 命令时向服务器请求候选项。关闭后不发补全请求。") },
-                trailingContent = {
-                    Switch(
-                        checked = preferences.commandCompletionEnabled,
-                        onCheckedChange = vm::setCommandCompletionEnabled
-                    )
-                }
-            )
-        }
+        item { CdkSection(cdkState, vm) }
+        item { AboutSection(vm, preferences, onSource = { showSourcePicker = true }) }
+    }
 
-        item { SectionTitle("后台保活") }
-        item {
-            ListItem(
-                headlineContent = { Text("忽略电池优化") },
-                supportingContent = {
-                    Text(
-                        if (ignoringBatteryOptimizations) {
-                            "已加入白名单，系统省电策略不会清理后台连接。"
-                        } else {
-                            "未加入白名单。息屏一段时间后，系统可能直接掐断后台连接。点击前往授权。"
+    removingAccountUuid?.let { uuid ->
+        val name = accountList.firstOrNull { it.uuid == uuid }?.username ?: "该账号"
+        AlertDialog(
+            onDismissRequest = { removingAccountUuid = null },
+            title = { Text("移除账号") },
+            text = { Text("确定移除 $name？本地登录凭证将被删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.removeAccount(uuid)
+                    removingAccountUuid = null
+                }) { Text("移除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { removingAccountUuid = null }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showThemePicker) {
+        AlertDialog(
+            onDismissRequest = { showThemePicker = false },
+            title = { Text("外观主题") },
+            text = {
+                Column {
+                    ThemeMode.entries.forEach { themeMode ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.setThemeMode(themeMode)
+                                    showThemePicker = false
+                                }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = preferences.themeMode == themeMode,
+                                onClick = {
+                                    vm.setThemeMode(themeMode)
+                                    showThemePicker = false
+                                }
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(themeMode.displayName)
                         }
-                    )
-                },
-                leadingContent = { Icon(Icons.Default.Lock, contentDescription = null) },
-                trailingContent = {
-                    if (ignoringBatteryOptimizations) {
-                        Icon(Icons.Default.Check, contentDescription = null)
-                    } else {
-                        Icon(Icons.Default.ChevronRight, contentDescription = null)
                     }
-                },
-                modifier = Modifier.clickable(enabled = !ignoringBatteryOptimizations) {
-                    vm.requestIgnoreBatteryOptimizations()
                 }
-            )
-        }
-        item {
-            ListItem(
-                headlineContent = { Text("厂商后台限制") },
-                supportingContent = {
-                    Text("小米、华为、荣耀、OPPO、vivo 等系统还有自启动与后台锁定开关，未放开时仍可能被清理。查看各系统的设置位置。")
-                },
-                leadingContent = { Icon(Icons.Default.Settings, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-                modifier = Modifier.clickable { showBackgroundLimitGuide = true }
-            )
-        }
-        item {
-            ListItem(
-                headlineContent = { Text("低能耗挂后台") },
-                supportingContent = {
-                    Text("退到后台或息屏时释放 CPU 唤醒锁并降低通知刷新频率，明显省电；代价是掉线概率略增，掉线后仍会自动重连。")
-                },
-                trailingContent = {
-                    Switch(
-                        checked = preferences.backgroundLowPowerEnabled,
-                        onCheckedChange = vm::setBackgroundLowPowerEnabled
-                    )
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemePicker = false }) { Text("关闭") }
+            }
+        )
+    }
+
+    if (showFontScale) {
+        AlertDialog(
+            onDismissRequest = { showFontScale = false },
+            title = { Text("聊天字号") },
+            text = {
+                Column {
+                    listOf(0.9f to "小", 1f to "标准", 1.15f to "大", 1.3f to "更大").forEach { (scale, label) ->
+                        TextButton(onClick = {
+                            vm.setChatFontScale(scale)
+                            showFontScale = false
+                        }) {
+                            Text("$label (${(scale * 100).toInt()}%)")
+                        }
+                    }
                 }
-            )
-        }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFontScale = false }) { Text("关闭") }
+            }
+        )
+    }
 
-        item { SectionTitle("外观") }
-        item {
-            ListItem(
-                headlineContent = { Text("明暗主题") },
-                supportingContent = { Text(preferences.themeMode.displayName) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-                modifier = Modifier.clickable { showThemePicker = true }
-            )
-        }
+    if (showLogLimit) {
+        AlertDialog(
+            onDismissRequest = { showLogLimit = false },
+            title = { Text("聊天记录上限") },
+            text = {
+                Column {
+                    listOf(200, 500, 1000, 2000).forEach { limit ->
+                        TextButton(onClick = {
+                            vm.setMaxUiLog(limit)
+                            showLogLimit = false
+                        }) { Text("$limit 条") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLogLimit = false }) { Text("关闭") }
+            }
+        )
+    }
 
-        item { SectionTitle("个性化") }
-        item {
-            ListItem(
-                headlineContent = { Text("替换启动图标") },
-                supportingContent = { Text("当前：${currentAppIcon.displayName}") },
-                leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-                modifier = Modifier.clickable { showIconPicker = true }
-            )
-        }
-
-        item { SectionTitle("CDK") }
-        item {
-            CdkModuleCard(
-                state = cdkState,
-                onRefresh = vm::refreshCdk
-            )
-        }
-
-        item { SectionTitle("版本数据") }
-        item {
-            SettingActions(
-                actions = listOf(
-                    SettingAction("刷新版本列表", Icons.Default.Refresh) { vm.refreshVersions() },
-                    SettingAction("清除缓存", Icons.Default.Delete, vm::clearVersionCache)
-                )
-            )
-        }
-
-        item { SectionTitle("关于") }
-        item {
-            ListItem(
-                headlineContent = { Text("掌上碧玺") },
-                supportingContent = { Text("版本 ${vm.versionNameText}\n包名 ${vm.packageNameText}") },
-                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) }
-            )
-        }
-        item {
-            ListItem(
-                headlineContent = { Text("下载线路") },
-                supportingContent = { Text(preferences.downloadSource.displayName) },
-                leadingContent = { Icon(Icons.Default.SwapHoriz, contentDescription = null) },
-                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-                modifier = Modifier.clickable { showSourcePicker = true }
-            )
-        }
-        item {
-            SettingActions(
-                actions = listOf(
-                    SettingAction("检查更新", Icons.Default.Refresh, vm::checkForUpdate)
-                )
-            )
-        }
-        item { Spacer(Modifier.height(24.dp)) }
+    if (showNotifBehavior) {
+        AlertDialog(
+            onDismissRequest = { showNotifBehavior = false },
+            title = { Text("通知点击行为") },
+            text = {
+                Column {
+                    TextButton(onClick = {
+                        vm.setNotificationTapBehavior(com.bilicraft.handheld.config.NotificationTapBehavior.OpenHome)
+                        showNotifBehavior = false
+                    }) { Text("打开应用主页") }
+                    TextButton(onClick = {
+                        vm.setNotificationTapBehavior(com.bilicraft.handheld.config.NotificationTapBehavior.OpenChannel)
+                        showNotifBehavior = false
+                    }) { Text("打开对应频道") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showNotifBehavior = false }) { Text("关闭") }
+            }
+        )
     }
 
     if (showSourcePicker) {
@@ -378,44 +295,8 @@ internal fun SettingsScreen(
 
     if (showBackgroundLimitGuide) {
         BackgroundLimitGuideDialog(
-            onOpenAppDetails = {
-                vm.openAppDetailsSettings()
-                showBackgroundLimitGuide = false
-            },
+            onOpenAppDetails = vm::openAppDetailsSettings,
             onDismiss = { showBackgroundLimitGuide = false }
-        )
-    }
-
-    if (showThemePicker) {
-        AlertDialog(
-            onDismissRequest = { showThemePicker = false },
-            title = { Text("明暗主题") },
-            text = {
-                Column {
-                    ThemeMode.entries.forEach { themeMode ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    vm.setThemeMode(themeMode)
-                                    showThemePicker = false
-                                }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = preferences.themeMode == themeMode,
-                                onClick = null
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(themeMode.displayName)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showThemePicker = false }) { Text("取消") }
-            }
         )
     }
 
@@ -425,26 +306,8 @@ internal fun SettingsScreen(
         onInstall = vm::installUpdate,
         onDismiss = vm::dismissUpdate
     )
-
-    removingAccountUuid?.let { uuid ->
-        val target = accountList.firstOrNull { it.uuid == uuid }
-        AlertDialog(
-            onDismissRequest = { removingAccountUuid = null },
-            icon = { Icon(Icons.Default.Delete, contentDescription = null) },
-            title = { Text("移除账号") },
-            text = { Text("确定移除账号「${target?.username ?: uuid}」？该账号的登录凭据将从本机抹除，需要时可重新登录。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.removeAccount(uuid)
-                    removingAccountUuid = null
-                }) { Text("移除") }
-            },
-            dismissButton = {
-                TextButton(onClick = { removingAccountUuid = null }) { Text("取消") }
-            }
-        )
-    }
 }
+
 @Composable
 private fun BackgroundLimitGuideDialog(
     onOpenAppDetails: () -> Unit,
@@ -488,7 +351,7 @@ private fun BackgroundLimitGuideDialog(
 }
 
 @Composable
-private fun CdkModuleCard(
+internal fun CdkModuleCard(
     state: CdkState,
     onRefresh: () -> Unit
 ) {
@@ -538,7 +401,7 @@ private fun CdkModuleCard(
 }
 
 @Composable
-private fun CdkEntryItem(
+internal fun CdkEntryItem(
     entry: CdkEntry,
     onCopy: () -> Unit
 ) {
@@ -580,7 +443,7 @@ private fun cdkWindowText(entry: CdkEntry): String? = when {
     else -> null
 }
 @Composable
-private fun AccountRow(
+internal fun AccountRow(
     account: com.bilicraft.handheld.auth.AccountSummary,
     onSwitch: () -> Unit,
     onRemove: () -> Unit
@@ -742,31 +605,14 @@ private fun DownloadSourceDialog(
  * 图标切换的平台副作用（桌面图标短暂消失、可能被移出最近任务）在页顶提示，避免用户误以为出错。
  */
 @Composable
-private fun AppIconPickerScreen(
+internal fun AppIconPickerScreen(
     icons: List<AppIcon>,
     current: AppIcon,
     onSelect: (AppIcon) -> Unit,
     onBack: () -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .padding(start = 4.dp, end = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-            }
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text = "替换启动图标",
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        com.bilicraft.handheld.ui.common.DetailHeader(title = "替换启动图标", onBack = onBack)
 
         LazyColumn(Modifier.fillMaxSize()) {
             item {
