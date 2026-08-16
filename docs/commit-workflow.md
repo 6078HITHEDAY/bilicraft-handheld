@@ -70,7 +70,7 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-3. 推送 tag 会触发 `release.yml`：构建**已签名** `assembleRelease` → 产物挂到 GitHub Release，并自动生成开发者 changelog。
+3. 推送 tag（或网页上手动触发 workflow）会触发 `release.yml`：用仓库 Secrets 的 keystore 构建**已签名** `assembleRelease` → 产物挂到 GitHub Release，并自动生成开发者 changelog。下载安装即可覆盖旧版（与本地 `.signing/` 同一把 key）。
 4. **编写更新公告**：到 GitHub 上刚创建的这个 Release，**编辑描述，在最顶部写给玩家看的公告**（怎么写见下一节）。保存即可，App 端下次检查更新就会读到。
 
 ### 版本号与 tag 的对应关系
@@ -125,8 +125,7 @@ App 内「检查更新」弹窗**不会**展示 GitHub 自动生成的 changelog
 | 流水线 | 触发 | 作用 | 与公告的关系 |
 | --- | --- | --- | --- |
 | `ci.yml` | push / PR 到 `main`·`master` | `assembleDebug` 验证可构建 | 无关，日常提交自动跑 |
-| `release.yml` | 推送 `v*` tag | 构建已签名 `assembleRelease` + 建 GitHub Release | **这里之后才手写公告** |
-| `deploy-cdn.yml` | 手动 / 定时 / Release 成功后 | 生成并部署 CDN 索引（更新源、插件市场、CDK） | 依赖 Release 已发布 |
+| `release.yml` | 推送 `v*` tag 或手动 | 构建已签名 `assembleRelease` + 建 GitHub Release | **这里之后才手写公告** |
 
 ---
 

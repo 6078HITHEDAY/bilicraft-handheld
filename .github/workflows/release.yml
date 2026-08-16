@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: [ 'v*' ]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,7 +27,8 @@ jobs:
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.9
 
-      # 从 Secrets 解码 base64 keystore 到工作区文件，供 gradle 签名读取。
+      # keystore 存于仓库 Secrets（KEYSTORE_BASE64），构建时解码注入。
+      # Secrets 与本地 ~/文档/Projects/.signing/ 是同一把 key，两端互为备份。
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -42,12 +44,17 @@ jobs:
 
       - name: Prepare release APK name
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/bilicraft handle-${VERSION}.apk"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="manual-$(date +%Y%m%d-%H%M)"
+          fi
+          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/bilicraft-${VERSION}.apk"
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/bilicraft handle-*.apk
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('manual-{0}', github.run_number) }}
+          files: app/build/outputs/apk/release/bilicraft-*.apk
           body_path: release-notes.md
           generate_release_notes: true

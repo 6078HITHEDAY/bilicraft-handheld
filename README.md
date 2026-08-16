@@ -87,7 +87,7 @@ gradle wrapper --gradle-version 8.9
 - [`plugin-market/discovery.json`](plugin-market/discovery.json)：可信插件仓库自动发现白名单
 - [`plugin-market/index.example.jsonc`](plugin-market/index.example.jsonc)：带字段备注的 JSONC 示例，不作为 App 正式市场数据
 
-新增插件时，优先在 `plugin-market/discovery.json` 加入可信仓库。插件作者在 GitHub Release 上传 `.bhplugin` 与 `market-entry.json` 后，CDN workflow 会自动读取 latest Release、校验插件 ID / 权限 / 下载地址 / SHA-256，并把插件包镜像到 `https://bccdn.yanguiofficial.cn/plugins/...`，最终输出 `https://bccdn.yanguiofficial.cn/plugin-market/index.json`。不走自动发现的插件，才需要手动维护 `plugin-market/index.json` 的完整 release 条目。
+新增插件时，优先在 `plugin-market/discovery.json` 加入可信仓库。插件作者在 GitHub Release 上传 `.bhplugin` 与 `market-entry.json` 后，~~CDN workflow 自动读取并镜像~~（**CDN 部署已停用**，2026-08-27，自用本地装）：插件包与 `plugin-market/index.json` 改为手动维护完整 release 条目。
 
 ---
 
@@ -98,7 +98,7 @@ gradle wrapper --gradle-version 8.9
 - 仓库源文件：[`cdk/index.json`](cdk/index.json)
 - CDN 地址：`https://bccdn.yanguiofficial.cn/cdk/index.json`
 
-更新该文件并触发 CDN 部署后，App 会按当前时间过滤 `startsAt` / `endsAt`，只展示正在有效期内的 CDK。时间使用 ISO-8601 UTC 格式。
+更新该文件并触发 CDN 部署后（**CDN 部署已停用**，2026-08-27，`bccdn.yanguiofficial.cn` 不再更新），App 会按当前时间过滤 `startsAt` / `endsAt`，只展示正在有效期内的 CDK。时间使用 ISO-8601 UTC 格式。
 
 ```json
 {
@@ -198,8 +198,7 @@ docs/           文档
 `.github/workflows/` 下有两条 GitHub Actions 流水线：
 
 - **ci.yml**：`push` / PR 到 main/master 触发。装 JDK 17 → 用官方 gradle 生成 wrapper → `assembleDebug` → 上传 `app-debug` APK 为构建产物。
-- **release.yml**：推送 `v*` tag 触发。构建 `assembleRelease`（未签名）→ 自动挂到 GitHub Release。
-- **deploy-cdn.yml**：手动、定时或 Release 成功后触发。运行 `scripts/build-cdn.mjs` 生成 App 更新索引、官方插件市场索引、插件包镜像和 CDK 配置，再部署到 Cloudflare Pages。
+- **release.yml**：推送 `v*` tag 或网页手动触发。用仓库 Secrets 的 keystore 构建**已签名** `assembleRelease` → 自动挂到 GitHub Release（下载即装；与本地 `~/文档/Projects/.signing/` 同一把 key，两端互为备份）。
 
 > 因为本仓库未提交 Gradle wrapper 的二进制 jar，两条流水线都先用 `gradle wrapper` 生成它再构建。若你在本地补交了 wrapper jar，可删掉「Generate Gradle wrapper」步骤直接用 `./gradlew`。release 产物为未签名 APK，需要正式签名时在仓库 Secrets 配置 keystore 并补充签名步骤。
 
