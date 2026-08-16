@@ -1,24 +1,141 @@
-# Bilicraft 掌机
+# Bilicraft Handheld · 掌上碧玺
 
-一个**完全本地运行**的 Android 版 Minecraft 聊天客户端，定位类似 Minecraft Console Client（MCC）的手机版。纯本地架构，无云端 Core，微软登录、协议连接、插件全部在手机本地完成。
+一个**完全本地运行**的 Android 版 Minecraft 聊天客户端，定位类似 [Minecraft Console Client](https://github.com/MCCTeam/Minecraft-Console-Client)（MCC）的手机版。纯本地架构，无云端 Core——微软登录、协议连接、插件、聊天全部在手机本地完成。
+
+
+
+主界面采用 **Telegram 风格**，把 Minecraft 服务器当作「频道」：频道即群聊，玩家私聊按人分栏，气泡区分自己 / 他人 / 系统消息。
+
+> 应用显示名称为「掌上碧玺」。仅供学习研究，Minecraft 是 Mojang / Microsoft 的商标。
 
 ---
 
-## 特性
+## ✨ 特性
 
-- **纯本地微软登录**：OAuth 2.0 设备码流程，全程无需输入密码。完整链路 `Microsoft Token → XBL → XSTS → MC Token → 验权`，refresh_token 静默刷新，用户无感知。
+- **纯本地微软登录**：OAuth 2.0 设备码流程，全程无需输入密码。完整链路 `Microsoft Token → XBL → XSTS → MC Token → 验权`，`refresh_token` 静默刷新，用户无感知。
 - **Token 安全存储**：使用 Android `EncryptedSharedPreferences`（主密钥存于 Keystore/TEE），AES-256-GCM 加密，**永不明文落盘**。
 - **全量版本下拉框**：内置协议表（1.7.10 → 26.2）+ 在线拉取 Mojang manifest 缓存合并，分组展示（最新版 / Release / Snapshot / Old），默认「自动识别」。
 - **本地直连 MC Java 服务器**：Netty 手写协议栈（帧长度 / 压缩 / AES-CFB8 加密 / 版本档案），只做聊天收发。
-- **Telegram 风格聊天 UI**：主界面为「聊天 / 联系人 / 设置」三 Tab。聊天页把服务器当作**频道**，频道即群聊；私聊按玩家分栏，`messages you` 等入站格式自动分流进对应私聊页；聊天气泡区分自己 / 他人 / 系统消息；联系人页展示服务器 Tab 名单与像素头像；聊天页提供「完全退出」按钮，可断开连接并彻底退出后台。
-- **插件系统**：支持本体自定义 `.bhplugin` 外部插件包，插件通过 `plugin-api` 注册 App 内页面入口并访问稳定宿主能力；设置页提供“插件管理”模块用于导入、启停、卸载和官方源安装/更新，频道会话页右侧提供可折叠“插件入口”面板用于进入具体插件页面。旧 JS 沙箱插件仍作为内置脚本插件保留。
+- **Telegram 风格聊天 UI**：主界面为「聊天 / 联系人 / 设置」三 Tab；聊天页把服务器当作频道，私聊按玩家分栏，`messages you` 等入站格式自动分流进对应私聊页；聊天气泡区分自己 / 他人 / 系统消息；联系人页展示服务器 Tab 名单与像素头像；聊天页提供「完全退出」按钮，可断开连接并彻底退出后台。
+- **插件系统**：支持本体自定义 `.bhplugin` 外部插件包，插件通过 `plugin-api` 注册 App 内页面入口并访问稳定宿主能力；设置页提供「插件管理」模块用于导入、启停、卸载和官方源安装/更新，频道会话页右侧提供可折叠「插件入口」面板用于进入具体插件页面。旧 JS 沙箱插件仍作为内置脚本插件保留。
 - **CDK 定时展示**：设置页内置 CDK 模块，App 只读取官方 CDN 的 `cdk/index.json`；维护者更新该文件即可按 `startsAt` / `endsAt` 控制指定时间段内展示的兑换码。
 - **强制签名可选**：新增/编辑频道时可切换「强制签名」；开启后取 Mojang 玩家证书并对聊天做真实签名，适配强制安全档案的正版服务器；私钥只在内存中使用，不落盘。
-- **锁屏不断线**：前台 Service（dataSync）+ PARTIAL_WAKE_LOCK + 连接参数落盘续跑 + 网络恢复立刻重连 + 设置页「忽略电池优化」引导与厂商后台限制说明；可选「低能耗挂后台」在退到后台/息屏时释放唤醒锁并降低通知刷新频率。
+- **锁屏不断线**：前台 Service（dataSync）+ `PARTIAL_WAKE_LOCK` + 连接参数落盘续跑 + 网络恢复立刻重连 + 设置页「忽略电池优化」引导与厂商后台限制说明；可选「低能耗挂后台」在退到后台/息屏时释放唤醒锁并降低通知刷新频率。
 
 ---
 
-## 架构
+## 📚 文档导航
+
+| 文档 | 受众 | 内容 |
+| --- | --- | --- |
+| [用户手册](docs/user-guide.md) | 玩家 / 使用者 | 从登录到聊天、私聊、插件、CDK 的完整使用指南 |
+| [常见问题与故障排查](docs/faq.md) | 玩家 / 使用者 | 登录、连接、后台保活、更新、插件等常见问题 |
+| [插件开发与官方插件源](docs/plugin-development.md) | 开发者 | `.bhplugin` 插件开发、API、官方源发布格式 |
+| [提交与发布流程](docs/commit-workflow.md) | 维护者 | 日常提交与发 Release 的约定、更新公告怎么写 |
+
+所有文档的汇总入口见 [docs/README.md](docs/README.md)。
+
+---
+
+## 🚀 一键启动（构建并安装）
+
+### 前置要求
+
+- Android Studio（Ladybug / 2024.2 或更新）
+- JDK 17 或 21（Gradle 守护进程只认项目内 `.jdk`，不跟系统默认 `JAVA_HOME`）
+- Android SDK（API 34），首次打开 Android Studio 会自动下载
+
+### 步骤
+
+1. 用 Android Studio 打开本项目根目录（会自动生成 Gradle wrapper 并同步依赖）。
+2. 连接 Android 设备（Android 7.0 / API 24 及以上）或启动模拟器。
+3. 点击 **Run ▶**，即可安装运行。
+
+命令行方式（需已安装 Android SDK 并配置 `local.properties`）：
+
+```bash
+# 首次：把本机 JDK 17/21 软链到项目根目录（路径按本机实际安装改）
+ln -sfn ~/.minecraftx/jre/java-runtime-delta .jdk
+# 首次：用本机 gradle 生成 wrapper（若无 wrapper jar）
+gradle wrapper --gradle-version 8.9
+# 构建 + 安装
+./gradlew installDebug
+```
+
+> 首次使用流程：打开 App →「使用微软账户登录」→ 浏览器输入设备码授权 → 回到 App →「聊天」页右上角新增频道（选版本，默认自动识别；填服务器地址）→ 连接 → 群聊；「联系人」页点玩家即可私聊。
+
+---
+
+## 🧩 插件系统
+
+本项目支持两类插件：
+
+- **外部插件（推荐）**：本体自定义 `.bhplugin` 包（不是 APK），通过 `plugin-api` 注册 App 内页面入口并访问宿主能力。安装、更新、启停和卸载在设置页的「插件管理」模块完成；具体插件页面从频道会话页右侧的折叠「插件入口」面板进入。
+- **内置脚本插件**：旧 Rhino JS 插件，仍随本体一起加载，主要用于兼容已有内置脚本。
+
+开发者可直接复制官方构建模板创建插件项目：
+
+- [`.bhplugin` Gradle 构建模板](templates/bhplugin/build.gradle.kts)
+- [`settings.gradle.kts` 接入示例](templates/bhplugin/settings.gradle.kts)
+- [`gradle.properties` 基础配置](templates/bhplugin/gradle.properties)
+
+完整开发流程、`.bhplugin` 包结构、API 说明和官方源发布格式见 [插件开发与官方插件源](docs/plugin-development.md)。
+
+官方插件市场以仓库内配置为源头，由 CDN workflow 生成最终给 App 使用的静态索引：
+
+- [`plugin-market/index.json`](plugin-market/index.json)：人工维护的基础官方索引 / 兜底索引
+- [`plugin-market/discovery.json`](plugin-market/discovery.json)：可信插件仓库自动发现白名单
+- [`plugin-market/index.example.jsonc`](plugin-market/index.example.jsonc)：带字段备注的 JSONC 示例，不作为 App 正式市场数据
+
+新增插件时，优先在 `plugin-market/discovery.json` 加入可信仓库。插件作者在 GitHub Release 上传 `.bhplugin` 与 `market-entry.json` 后，CDN workflow 会自动读取 latest Release、校验插件 ID / 权限 / 下载地址 / SHA-256，并把插件包镜像到 `https://bccdn.yanguiofficial.cn/plugins/...`，最终输出 `https://bccdn.yanguiofficial.cn/plugin-market/index.json`。不走自动发现的插件，才需要手动维护 `plugin-market/index.json` 的完整 release 条目。
+
+---
+
+## 🎁 CDK 展示配置
+
+设置页的 CDK 模块读取官方 CDN 文件：
+
+- 仓库源文件：[`cdk/index.json`](cdk/index.json)
+- CDN 地址：`https://bccdn.yanguiofficial.cn/cdk/index.json`
+
+更新该文件并触发 CDN 部署后，App 会按当前时间过滤 `startsAt` / `endsAt`，只展示正在有效期内的 CDK。时间使用 ISO-8601 UTC 格式。
+
+```json
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-07-13T00:00:00Z",
+  "entries": [
+    {
+      "id": "summer-2026",
+      "title": "暑期活动 CDK",
+      "code": "BILICRAFT-2026-SUMMER",
+      "description": "活动期间可在设置页复制领取。",
+      "startsAt": "2026-07-13T00:00:00Z",
+      "endsAt": "2026-07-20T23:59:59Z"
+    }
+  ]
+}
+```
+
+`startsAt` 或 `endsAt` 可省略，分别表示不限制开始时间或结束时间。无有效条目时，设置页只显示空状态。
+
+---
+
+## 🔑 微软登录 client_id
+
+默认使用 PrismLauncher 的公开 Azure client_id（开源启动器通用），开箱即用。
+
+如需替换为自建 Azure 应用：
+
+1. 在 [Azure Portal](https://portal.azure.com) 注册应用（Personal Microsoft accounts）。
+2. 启用 **Allow public client flows**（设备码流程必需）。
+3. 把 `app/build.gradle.kts` 中 `MS_CLIENT_ID` 换成你的 Application (client) ID。
+
+scope 固定为 `XboxLive.signin offline_access`（硬性要求，含离线刷新）。
+
+---
+
+## 🏗 架构（开发者）
 
 模块职责分明，数据单向流动：
 
@@ -55,112 +172,28 @@ ui         Compose：登录页 / 主界面（聊天·联系人·设置三 Tab，
 
 关键隔离边界：**插件与 UI 永远看不到原始 packet**，只消费 `ChatEvent`。协议版本变化不影响上层。
 
----
+### 项目结构
 
-## 一键启动
-
-### 前置要求
-- Android Studio（Ladybug / 2024.2 或更新）
-- JDK 17 或 21（Gradle 守护进程只认项目内 `.jdk`，不跟系统默认 `JAVA_HOME`）
-- Android SDK（API 34），首次打开 Android Studio 会自动下载
-
-### 步骤
-1. 用 Android Studio 打开本项目根目录（会自动生成 Gradle wrapper 并同步依赖）。
-2. 连接 Android 设备（Android 7.0 / API 24 及以上）或启动模拟器。
-3. 点击 **Run ▶**，即可安装运行。
-
-命令行方式（需已安装 Android SDK 并配置 `local.properties`）：
-
-```bash
-# 首次：把本机 JDK 17/21 软链到项目根目录（路径按本机实际安装改）
-ln -sfn ~/.minecraftx/jre/java-runtime-delta .jdk
-# 首次：用本机 gradle 生成 wrapper（若无 wrapper jar）
-gradle wrapper --gradle-version 8.9
-# 构建 + 安装
-./gradlew installDebug
+```
+app/            主应用（Compose UI、协议、会话、服务、插件加载、更新、CDK）
+plugin-api/     外部插件稳定 API 模块（唯一公开边界）
+plugin-market/  官方插件源索引与自动发现白名单
+cdk/            CDK 配置源文件
+templates/      .bhplugin 插件项目构建模板
+scripts/        CDN 构建脚本（build-cdn.mjs）
+icons/          启动图标源文件（由 syncAppIcons 在构建时同步）
+docs/           文档
 ```
 
-> 使用流程：打开 App → 「使用微软账户登录」→ 浏览器输入设备码授权 → 回到 App → 「聊天」页右上角新增频道（选版本，默认自动识别；填服务器地址）→ 连接 → 群聊；「联系人」页点玩家即可私聊。
-
 ---
 
-## 微软登录 client_id
-
-默认使用 PrismLauncher 的公开 Azure client_id（开源启动器通用），开箱即用。
-
-如需替换为自建 Azure 应用：
-1. 在 [Azure Portal](https://portal.azure.com) 注册应用（Personal Microsoft accounts）。
-2. 启用 **Allow public client flows**（设备码流程必需）。
-3. 把 `app/build.gradle.kts` 中 `MS_CLIENT_ID` 换成你的 Application (client) ID。
-
-scope 固定为 `XboxLive.signin offline_access`（硬性要求，含离线刷新）。
-
----
-
-## 插件开发与官方插件源
-
-本项目现在支持两类插件：
-
-- **外部插件**：推荐方式，使用本体自定义 `.bhplugin` 包，不是 APK；通过 `plugin-api` 注册 App 内页面入口并访问宿主能力。插件安装、更新、启停和卸载在设置页的“插件管理”模块完成；具体插件页面从频道会话页右侧的折叠“插件入口”面板进入。
-- **内置脚本插件**：旧 Rhino JS 插件，仍随本体一起加载，主要用于兼容已有内置脚本。
-
-开发者可直接复制官方构建模板创建插件项目：
-
-- [`.bhplugin` Gradle 构建模板](templates/bhplugin/build.gradle.kts)
-- [`settings.gradle.kts` 接入示例](templates/bhplugin/settings.gradle.kts)
-- [`gradle.properties` 基础配置](templates/bhplugin/gradle.properties)
-
-完整开发流程、`.bhplugin` 包结构、API 说明和官方源发布格式见：
-
-- [插件开发与官方插件源](docs/plugin-development.md)
-
-官方插件市场以仓库内配置为源头，由 CDN workflow 生成最终给 App 使用的静态索引：
-
-- [`plugin-market/index.json`](plugin-market/index.json)：人工维护的基础官方索引 / 兜底索引
-- [`plugin-market/discovery.json`](plugin-market/discovery.json)：可信插件仓库自动发现白名单
-- [`plugin-market/index.example.jsonc`](plugin-market/index.example.jsonc)：带字段备注的 JSONC 示例，不作为 App 正式市场数据
-
-新增插件时，优先在 `plugin-market/discovery.json` 加入可信仓库。插件作者在 GitHub Release 上传 `.bhplugin` 与 `market-entry.json` 后，CDN workflow 会自动读取 latest Release、校验插件 ID / 权限 / 下载地址 / SHA-256，并把插件包镜像到 `https://bccdn.yanguiofficial.cn/plugins/...`，最终输出 `https://bccdn.yanguiofficial.cn/plugin-market/index.json`。不走自动发现的插件，才需要手动维护 `plugin-market/index.json` 的完整 release 条目。
-
----
-
-## CDK 展示配置
-
-设置页的 CDK 模块读取官方 CDN 文件：
-
-- [`cdk/index.json`](cdk/index.json)
-- CDN 地址：`https://bccdn.yanguiofficial.cn/cdk/index.json`
-
-更新该文件并触发 CDN 部署后，App 会按当前时间过滤 `startsAt` / `endsAt`，只展示正在有效期内的 CDK。时间使用 ISO-8601 UTC 格式。
-
-```json
-{
-  "schemaVersion": 1,
-  "updatedAt": "2026-07-13T00:00:00Z",
-  "entries": [
-    {
-      "id": "summer-2026",
-      "title": "暑期活动 CDK",
-      "code": "BILICRAFT-2026-SUMMER",
-      "description": "活动期间可在设置页复制领取。",
-      "startsAt": "2026-07-13T00:00:00Z",
-      "endsAt": "2026-07-20T23:59:59Z"
-    }
-  ]
-}
-```
-
-`startsAt` 或 `endsAt` 可省略，分别表示不限制开始时间或结束时间。无有效条目时，设置页只显示空状态。
-
----
-
-## 提交与发布流程
+## 🚀 提交与发布流程
 
 日常提交与发布 Release 的完整约定见 [提交与发布流程](docs/commit-workflow.md)。核心一条：**日常提交不写更新公告，只有确认构建 Release、打 `v*` tag 时才在 GitHub Release 顶部编写面向玩家的公告。**
 
 ---
 
-## 持续集成（CI）
+## 🔁 持续集成（CI）
 
 `.github/workflows/` 下有两条 GitHub Actions 流水线：
 
@@ -172,7 +205,7 @@ scope 固定为 `XboxLive.signin offline_access`（硬性要求，含离线刷�
 
 ---
 
-## 已知限制
+## ⚠️ 已知限制
 
 - **协议映射（palette）**：协议差异用 per-version 精确映射（`PacketPalette` + `PaletteRegistry`）收敛，逻辑包 `PacketKey` ↔ 数字 id 双向查表，取代旧的「集合宽松匹配」。login/configuration 阶段包 id 跨 1.20.2–26.x 稳定、可信度高；**play 阶段聊天/系统消息 id 版本敏感**，已按 MCCTeam/Minecraft-Console-Client 的权威逐版本表分段声明（见 `PacketPalette.modernPlayChatIds`），精确覆盖协议 767→776：767(1.21) / 768-769(1.21.2-1.21.4) / 770(1.21.5) / 771-772(1.21.6-1.21.8) / 773-774(1.21.9-1.21.11) / 775-776(26.1-26.2)。老版本（1.13–1.20.1）保留一份 legacy 基线，标注「未逐版校准」，建议配合「自动识别」使用。
 - **聊天组件解析**：1.20.3（协议765）+ 服务器以「网络 NBT」下发文本组件，已用手写最小 NBT reader（`Nbt.kt`）解析；更早版本走 JSON 字符串路径。System Chat 内容在包首，提取精确；**Player Chat 包内容前有 sender/index/签名等复杂头部，当前按宽松策略处理**，失配则跳过而非崩溃，完整解析待后续按真实抓包细化。
@@ -181,6 +214,10 @@ scope 固定为 `XboxLive.signin offline_access`（硬性要求，含离线刷�
 
 ---
 
-## 许可
+## 感谢
+
+* 感谢洋芋提供的框架与思路，基于https://github.com/yangyv1016/bilicraft-handheld fork
+
+## 📄 许可
 
 仅供学习研究。Minecraft 是 Mojang / Microsoft 的商标。
