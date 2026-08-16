@@ -24,6 +24,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # gradle.properties 约定 org.gradle.java.home=.jdk（本地符号链接），runner 上没有，
+      # 把 setup-java 的 JDK 链过去。
+      - name: Link .jdk
+        run: ln -sfn "$JAVA_HOME" .jdk
+
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.9
 
