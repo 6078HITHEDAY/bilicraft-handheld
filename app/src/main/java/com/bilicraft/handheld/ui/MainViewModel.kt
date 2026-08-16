@@ -19,6 +19,7 @@ import com.bilicraft.handheld.auth.AuthState
 import com.bilicraft.handheld.chat.looksLikeDmPlain
 import com.bilicraft.handheld.chat.resolveDmPeer
 import com.bilicraft.handheld.chat.stripDmWrapper
+import com.bilicraft.handheld.config.ChatParseConfig
 import com.bilicraft.handheld.config.PluginPanelLayout
 import com.bilicraft.handheld.config.ServerConfig
 import com.bilicraft.handheld.config.ServerContact
@@ -156,6 +157,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _pendingDeepLinkServerId = MutableStateFlow<String?>(null)
     val pendingDeepLinkServerId: StateFlow<String?> = _pendingDeepLinkServerId.asStateFlow()
 
+    /** prefs / servers / contacts 本地配置已从磁盘加载完成。 */
+    private val _configLoaded = MutableStateFlow(false)
+    val configLoaded: StateFlow<Boolean> = _configLoaded.asStateFlow()
+
     private var loginJob: Job? = null
 
     /** 每个服务器最近一次私聊对象（Bilicraft `messages you:` 不含对方名时用）。 */
@@ -163,6 +168,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val currentAccountName: String
         get() = auth.currentSession()?.mcUsername ?: "未登录"
+
+    val currentAccountUuid: String?
+        get() = auth.currentSession()?.mcUuid?.takeIf { it.isNotBlank() }
 
     val packageNameText: String
         get() = getApplication<Application>().packageName
@@ -176,6 +184,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             uiConfigRepo.load()
+            _configLoaded.value = true
             updateManager.checkForUpdate(silent = true, source = preferences.value.downloadSource)
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -437,12 +446,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setCommandCompletionEnabled(enabled: Boolean) {
-        settingsHolder.setCommandCompletionEnabled(enabled)
-        if (!enabled) {
-            _commandSuggestions.value = CommandSuggestions.Empty
-            session.requestCommandSuggestions("")
+        // 先等 prefs StateFlow 落地，再清候选项，避免 debounce 回填（H4）
+        viewModelScope.launch {
+            uiConfigRepo.setCommandCompletionEnabled(enabled)
+            if (!enabled) {
+                _commandSuggestions.value = CommandSuggestions.Empty
+                session.requestCommandSuggestions("")
+            }
+            _uiMessage.value = if (enabled) "命令补全已开启" else "命令补全已关闭"
         }
-        _uiMessage.value = if (enabled) "命令补全已开启" else "命令补全已关闭"
     }
 
     fun setBackgroundLowPowerEnabled(enabled: Boolean) {
@@ -532,7 +544,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         host: String,
         port: Int,
         version: McVersion,
-        signingRequired: Boolean
+        signingRequired: Boolean,
+        chatParse: ChatParseConfig = ChatParseConfig()
     ) {
         val safeName = name.ifBlank { host.ifBlank { "未命名服务器" } }
         if (host.isBlank()) {
@@ -545,7 +558,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 host = host.trim(),
                 port = port.takeIf { it in 1..65535 } ?: 25565,
                 version = version,
-                signingRequired = signingRequired
+                signingRequired = signingRequired,
+                chatParse = chatParse
             )
         )
     }

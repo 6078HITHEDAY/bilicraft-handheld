@@ -24,7 +24,9 @@ data class ServerConfig(
     val port: Int,
     val versionId: String,
     val protocolNumber: Int? = null,
-    val signingRequired: Boolean = false
+    val signingRequired: Boolean = false,
+    /** 公屏聊天解析规则（称号/阵营/玩家名）；默认原版。 */
+    val chatParse: ChatParseConfig = ChatParseConfig()
 ) {
     fun toMcVersion(): McVersion = McVersion(
         id = versionId,
@@ -32,6 +34,26 @@ data class ServerConfig(
         protocolNumber = ProtocolTable.byId[versionId] ?: protocolNumber
     )
 }
+
+/** 频道公屏解析预设。 */
+@Serializable
+enum class ChatParsePreset {
+    Vanilla,
+    Bilicraft,
+    Custom
+}
+
+/**
+ * 频道级聊天解析配置。
+ * named groups：server / player / message / title / faction；其余进 extras。
+ * 碧玺多服：协议 sender（如 HY）在解析命中后写入 decorations.server。
+ */
+@Serializable
+data class ChatParseConfig(
+    val preset: ChatParsePreset = ChatParsePreset.Vanilla,
+    /** Custom 时使用；编译失败则按 Vanilla 处理。 */
+    val pattern: String = ""
+)
 
 /** 按服务器软链接的联系人（私聊走 /msg）。 */
 @Serializable
@@ -41,6 +63,22 @@ data class ServerContact(
     val playerName: String,
     val note: String = ""
 )
+
+/**
+ * 联系人 id 作用域：
+ * - 自动建联：`serverId|playerUuid`，避免跨服同 UUID 覆盖
+ * - 手动添加：随机 UUID
+ * - 列表临时行：可能仍是裸 playerUuid
+ */
+fun scopedContactId(serverId: String, playerUuid: String): String = "$serverId|$playerUuid"
+
+fun ServerContact.rosterUuid(): String =
+    if (id.contains('|')) id.substringAfter('|') else id
+
+fun ServerContact.matchesRoster(playerUuid: String, playerName: String): Boolean =
+    rosterUuid() == playerUuid ||
+        id == playerUuid ||
+        this.playerName.equals(playerName, ignoreCase = true)
 
 @Serializable
 enum class ThemeMode(val displayName: String) {
@@ -95,6 +133,7 @@ class UiConfigRepository(context: Context) {
     private val contactsFile = File(context.filesDir, "ui_contacts.json")
     private val preferencesFile = File(context.filesDir, "ui_preferences.json")
     private val officialSigningMigrationFile = File(context.filesDir, "ui_official_server_signing_v1.migrated")
+    private val officialChatParseMigrationFile = File(context.filesDir, "ui_official_server_chat_parse_v1.migrated")
 
     private val _servers = MutableStateFlow<List<ServerConfig>>(emptyList())
     val servers: StateFlow<List<ServerConfig>> = _servers.asStateFlow()
@@ -106,8 +145,10 @@ class UiConfigRepository(context: Context) {
     val preferences: StateFlow<UiPreferences> = _preferences.asStateFlow()
 
     suspend fun load() = withContext(Dispatchers.IO) {
-        _servers.value = migrateOfficialServerSigning(
-            loadList(serverFile) ?: defaultServers().also { saveList(serverFile, it) }
+        _servers.value = migrateOfficialServerChatParse(
+            migrateOfficialServerSigning(
+                loadList(serverFile) ?: defaultServers().also { saveList(serverFile, it) }
+            )
         ).let { servers ->
             servers.map(::normalizeServerProtocol).also { normalized ->
                 if (normalized != servers) saveList(serverFile, normalized)
@@ -233,8 +274,20 @@ class UiConfigRepository(context: Context) {
 
     suspend fun upsertContact(contact: ServerContact) = withContext(Dispatchers.IO) {
         val current = _contacts.value
-        val next = if (current.any { it.id == contact.id }) {
-            current.map { if (it.id == contact.id) contact else it }
+        val existingIndex = current.indexOfFirst {
+            it.id == contact.id ||
+                (it.serverId == contact.serverId &&
+                    it.playerName.equals(contact.playerName, ignoreCase = true))
+        }
+        val next = if (existingIndex >= 0) {
+            current.toMutableList().also { list ->
+                val prev = list[existingIndex]
+                // 保留原 id，避免导航深链失效；仅更新字段
+                list[existingIndex] = contact.copy(
+                    id = prev.id,
+                    note = contact.note.ifBlank { prev.note }
+                )
+            }
         } else {
             current + contact
         }
@@ -275,7 +328,8 @@ class UiConfigRepository(context: Context) {
         host: String,
         port: Int,
         version: McVersion,
-        signingRequired: Boolean
+        signingRequired: Boolean,
+        chatParse: ChatParseConfig = ChatParseConfig()
     ): ServerConfig = ServerConfig(
         id = UUID.randomUUID().toString(),
         name = name,
@@ -283,7 +337,8 @@ class UiConfigRepository(context: Context) {
         port = port,
         versionId = version.id,
         protocolNumber = version.protocolNumber,
-        signingRequired = signingRequired
+        signingRequired = signingRequired,
+        chatParse = chatParse
     )
 
     private inline fun <reified T> loadList(file: File): List<T>? =
@@ -322,6 +377,26 @@ class UiConfigRepository(context: Context) {
         return next
     }
 
+    /**
+     * 一次性：官方主服默认启用碧玺公屏解析（阵营/称号/玩家）。
+     * 用户之后改回 Vanilla 不会被再次覆盖。
+     */
+    private fun migrateOfficialServerChatParse(servers: List<ServerConfig>): List<ServerConfig> {
+        if (officialChatParseMigrationFile.exists()) return servers
+        val next = servers.map { server ->
+            if (server.id == OFFICIAL_SERVER_ID &&
+                server.chatParse.preset == ChatParsePreset.Vanilla
+            ) {
+                server.copy(chatParse = ChatParseConfig(preset = ChatParsePreset.Bilicraft))
+            } else {
+                server
+            }
+        }
+        saveList(serverFile, next)
+        officialChatParseMigrationFile.writeText("done")
+        return next
+    }
+
     private fun defaultServers(): List<ServerConfig> = listOf(
         ServerConfig(
             id = OFFICIAL_SERVER_ID,
@@ -330,7 +405,8 @@ class UiConfigRepository(context: Context) {
             port = 25577,
             versionId = "1.21.11",
             protocolNumber = ProtocolTable.byId["1.21.11"],
-            signingRequired = true
+            signingRequired = true,
+            chatParse = ChatParseConfig(preset = ChatParsePreset.Bilicraft)
         )
     )
 

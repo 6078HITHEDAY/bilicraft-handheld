@@ -64,12 +64,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bilicraft.handheld.config.ChatParseConfig
 import com.bilicraft.handheld.protocol.ChatEvent
 import com.bilicraft.handheld.protocol.CommandSuggestion
 import com.bilicraft.handheld.protocol.CommandSuggestionState
 import com.bilicraft.handheld.protocol.CommandSuggestions
+import com.bilicraft.handheld.protocol.RosterPlayer
 import com.bilicraft.handheld.ui.common.UiConstants
-import com.bilicraft.handheld.ui.common.motionDurationMs
 import com.bilicraft.handheld.ui.common.toAnnotated
 import com.bilicraft.handheld.ui.theme.BilicraftChatTypography
 import com.bilicraft.handheld.ui.theme.BilicraftSpacing
@@ -96,6 +97,12 @@ internal fun BubbleChatLog(
     modifier: Modifier = Modifier,
     fontScale: Float = 1f,
     quickReplies: List<String> = emptyList(),
+    roster: List<RosterPlayer> = emptyList(),
+    selfUuid: String? = null,
+    chatParse: ChatParseConfig = ChatParseConfig(),
+    /** 私聊页传入对方正版名，避免气泡用昵称查皮肤。 */
+    preferredPeerName: String? = null,
+    preferredPeerUuid: String? = null,
     /** 进入会话时快照的已读水位；用于「以下为新消息」分隔，不随后续 markRead 变化。 */
     lastReadAt: Long? = null,
     onDeleteLocal: ((ChatEvent) -> Unit)? = null,
@@ -107,7 +114,9 @@ internal fun BubbleChatLog(
     var followLatestMessage by rememberSaveable { mutableStateOf(true) }
     var autoScrolling by remember { mutableStateOf(false) }
     var menuItem by remember { mutableStateOf<ClassifiedChat?>(null) }
-    val classified = remember(log, selfName) { log.map { classifyChat(it, selfName) } }
+    val classified = remember(log, selfName, selfUuid, chatParse) {
+        log.map { classifyChat(it, selfName, selfUuid, chatParse) }
+    }
     val firstUnreadIndex = remember(classified, lastReadAt) {
         if (lastReadAt == null) -1
         else classified.indexOfFirst { it.event.timestamp > lastReadAt }
@@ -126,7 +135,6 @@ internal fun BubbleChatLog(
     val lastListIndex = remember(dayGroups) {
         dayGroups.sumOf { 1 + it.second.size } - 1
     }
-    val fadeMs = motionDurationMs(180)
 
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -185,37 +193,21 @@ internal fun BubbleChatLog(
                         if (index == firstUnreadIndex && firstUnreadIndex > 0) {
                             UnreadSeparator()
                         }
-                        if (fadeMs == 0) {
-                            ChatBubble(
-                                item = item,
-                                selfName = selfName,
-                                maxWidth = maxBubbleWidth,
-                                fontScale = fontScale,
-                                onCopy = {
-                                    clipboardManager.setText(AnnotatedString(item.event.plainText))
-                                    Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
-                                },
-                                onLongClick = { menuItem = item }
-                            )
-                        } else {
-                            AnimatedVisibility(
-                                visible = true,
-                                enter = fadeIn(animationSpec = tween(fadeMs)),
-                                exit = fadeOut(animationSpec = tween(fadeMs))
-                            ) {
-                                ChatBubble(
-                                    item = item,
-                                    selfName = selfName,
-                                    maxWidth = maxBubbleWidth,
-                                    fontScale = fontScale,
-                                    onCopy = {
-                                        clipboardManager.setText(AnnotatedString(item.event.plainText))
-                                        Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
-                                    },
-                                    onLongClick = { menuItem = item }
-                                )
-                            }
-                        }
+                        ChatBubble(
+                            item = item,
+                            selfName = selfName,
+                            selfUuid = selfUuid,
+                            maxWidth = maxBubbleWidth,
+                            fontScale = fontScale,
+                            roster = roster,
+                            preferredPeerName = preferredPeerName,
+                            preferredPeerUuid = preferredPeerUuid,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(item.event.plainText))
+                                Toast.makeText(context, "已复制聊天内容", Toast.LENGTH_SHORT).show()
+                            },
+                            onLongClick = { menuItem = item }
+                        )
                     }
                 }
             }
@@ -345,8 +337,12 @@ private fun dayLabel(timestamp: Long): String {
 private fun ChatBubble(
     item: ClassifiedChat,
     selfName: String,
+    selfUuid: String?,
     maxWidth: androidx.compose.ui.unit.Dp,
     fontScale: Float,
+    roster: List<RosterPlayer>,
+    preferredPeerName: String?,
+    preferredPeerUuid: String?,
     onCopy: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -374,15 +370,63 @@ private fun ChatBubble(
         }
         BubbleKind.Self, BubbleKind.Other -> {
             val self = item.kind == BubbleKind.Self
-            val avatarName = item.senderLabel?.takeIf { it.isNotBlank() }
+            val label = item.senderLabel?.takeIf { it.isNotBlank() }
                 ?: selfName.takeIf { self && it.isNotBlank() && it != "未登录" }.orEmpty()
+            val deco = item.event.decorations
+            val avatar = remember(
+                label,
+                item.senderUuid,
+                deco?.player,
+                item.bodyPlain,
+                item.event.plainText,
+                roster,
+                preferredPeerName,
+                preferredPeerUuid,
+                self,
+                selfName,
+                selfUuid
+            ) {
+                if (self) {
+                    resolveAvatarIdentity(
+                        label = label,
+                        senderUuid = item.senderUuid ?: selfUuid,
+                        roster = roster,
+                        preferredName = selfName.takeIf { it.isNotBlank() && it != "未登录" }
+                            ?: deco?.player,
+                        preferredUuid = selfUuid,
+                        bodyHint = item.bodyPlain.ifBlank { item.event.plainText }
+                    )
+                } else if (preferredPeerName != null) {
+                    resolveAvatarIdentity(
+                        label = label,
+                        senderUuid = item.senderUuid ?: preferredPeerUuid,
+                        roster = roster,
+                        preferredName = preferredPeerName,
+                        preferredUuid = preferredPeerUuid,
+                        bodyHint = item.bodyPlain.ifBlank { item.event.plainText }
+                    )
+                } else {
+                    resolveAvatarIdentity(
+                        label = label,
+                        senderUuid = item.senderUuid,
+                        roster = roster,
+                        preferredName = deco?.player,
+                        bodyHint = item.bodyPlain.ifBlank { item.event.plainText }
+                    )
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = if (self) Arrangement.End else Arrangement.Start,
                 verticalAlignment = Alignment.Bottom
             ) {
                 if (!self) {
-                    PlayerAvatar(name = avatarName, online = true, size = 34.dp)
+                    PlayerAvatar(
+                        name = avatar.name,
+                        uuid = avatar.uuid,
+                        online = true,
+                        size = 34.dp
+                    )
                     Spacer(Modifier.width(6.dp))
                 }
                 Column(
@@ -401,8 +445,24 @@ private fun ChatBubble(
                         .padding(horizontal = BilicraftSpacing.md - 4.dp, vertical = BilicraftSpacing.sm)
                 ) {
                     if (!self) {
+                        val senderLine = buildString {
+                            deco?.server?.takeIf { it.isNotBlank() }?.let {
+                                append(it)
+                                append(' ')
+                            }
+                            deco?.faction?.takeIf { it.isNotBlank() }?.let {
+                                append(it)
+                                append(' ')
+                            }
+                            deco?.title?.takeIf { it.isNotBlank() }?.let {
+                                append('[')
+                                append(it)
+                                append("] ")
+                            }
+                            append(item.senderLabel.orEmpty())
+                        }
                         Text(
-                            text = item.senderLabel.orEmpty(),
+                            text = senderLine,
                             style = BilicraftChatTypography.sender,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
@@ -431,9 +491,14 @@ private fun ChatBubble(
                         modifier = Modifier.align(Alignment.End).padding(top = BilicraftSpacing.xs)
                     )
                 }
-                if (self && avatarName.isNotBlank()) {
+                if (self && avatar.name.isNotBlank()) {
                     Spacer(Modifier.width(6.dp))
-                    PlayerAvatar(name = avatarName, online = true, size = 34.dp)
+                    PlayerAvatar(
+                        name = avatar.name,
+                        uuid = avatar.uuid,
+                        online = true,
+                        size = 34.dp
+                    )
                 }
             }
         }

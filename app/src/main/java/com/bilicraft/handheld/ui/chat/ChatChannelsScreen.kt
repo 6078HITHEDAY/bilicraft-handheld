@@ -158,8 +158,8 @@ internal fun ChatChannelsScreen(
             onSelectVersion = vm::selectVersion,
             onForceSigning = vm::setForceSigning,
             onDismiss = { showCreateDialog = false },
-            onSave = { name, host, port, version, signing ->
-                vm.createServer(name, host, port, version, signing)
+            onSave = { name, host, port, version, signing, chatParse ->
+                vm.createServer(name, host, port, version, signing, chatParse)
                 showCreateDialog = false
             }
         )
@@ -190,7 +190,7 @@ internal fun ChatChannelsScreen(
             onSelectVersion = {},
             onForceSigning = {},
             onDismiss = { editingServer = null },
-            onSave = { name, host, port, version, signing ->
+            onSave = { name, host, port, version, signing, chatParse ->
                 vm.saveServer(
                     server.copy(
                         name = name.ifBlank { host },
@@ -198,7 +198,8 @@ internal fun ChatChannelsScreen(
                         port = port.takeIf { it in 1..65535 } ?: 25565,
                         versionId = version.id,
                         protocolNumber = version.protocolNumber,
-                        signingRequired = signing
+                        signingRequired = signing,
+                        chatParse = chatParse
                     )
                 )
                 editingServer = null

@@ -596,7 +596,7 @@ class MinecraftClient(
 
         private fun emitPlayerChat(buf: ByteBuf) {
             val parsed = runCatching {
-                buf.skipBytes(16)                                // sender UUID
+                val senderUuid = buf.readUuid().toString()
                 buf.readVarInt()                                 // index
                 if (buf.readBoolean()) buf.skipBytes(256)        // 签名（present 时定长 256B）
 
@@ -614,10 +614,12 @@ class MinecraftClient(
 
                 val (contentSpans, contentRaw) = unsigned
                     ?: (ChatComponent.toSpans(bodyContent) to bodyContent)
-                Triple(senderSpans, contentSpans, contentRaw)
+                // uuid + (senderSpans, contentSpans, contentRaw)
+                senderUuid to Triple(senderSpans, contentSpans, contentRaw)
             }.getOrNull() ?: return
 
-            val (senderSpans, contentSpans, contentRaw) = parsed
+            val (senderUuid, chatParts) = parsed
+            val (senderSpans, contentSpans, contentRaw) = chatParts
             val senderName = senderSpans.joinToString("") { it.text }
             val spans = decorateChat(senderSpans, contentSpans)
             val plain = spans.joinToString("") { it.text }
@@ -627,7 +629,8 @@ class MinecraftClient(
                     plainText = plain,
                     rawJson = contentRaw,
                     sender = senderName.ifBlank { null },
-                    spans = spans
+                    spans = spans,
+                    senderUuid = senderUuid
                 )
             )
         }

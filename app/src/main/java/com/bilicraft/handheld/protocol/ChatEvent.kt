@@ -8,15 +8,37 @@ package com.bilicraft.handheld.protocol
  * 这样插件不会因为协议版本变化而失效，也不可能误操作原始字节。
  */
 
+/**
+ * 频道规则解析出的装饰字段。Minecraft 包本身为 null；
+ * 由 UI 侧按 [com.bilicraft.handheld.config.ChatParseConfig] 回写。
+ *
+ * @param player 正版玩家名
+ * @param title 称号（如「建筑大师」）
+ * @param faction 阵营标记
+ * @param server 多服网络里的子服名（如碧玺的 HY）；常来自协议 sender 或规则 `(?<server>)`
+ * @param extras 其它自定义 named group
+ */
+data class ChatDecorations(
+    val player: String? = null,
+    val title: String? = null,
+    val faction: String? = null,
+    val server: String? = null,
+    val extras: Map<String, String> = emptyMap()
+)
+
 /** 服务器 → 客户端 的聊天/系统消息（已从各版本 packet 归一化） */
 data class ChatEvent(
     val plainText: String,      // 去格式化后的纯文本（插件匹配关键字用）
     val rawJson: String,        // 原始 JSON/NBT 文本组件（需要富文本时用）
-    val sender: String? = null, // 玩家消息的发送者名（系统消息为 null）
+    val sender: String? = null, // 玩家消息的发送者名（系统消息为 null；可能是昵称/前缀）
     val timestamp: Long = System.currentTimeMillis(),
     val spans: List<ChatSpan> = emptyList(),  // 富文本片段（UI 上色用）；空表示按 plainText 纯色显示
     /** 非空表示私聊对象玩家名；公屏应隐藏，只进对应私聊页。 */
-    val dmPeer: String? = null
+    val dmPeer: String? = null,
+    /** Player Chat 包里的发送者 UUID；头像优先用它，避免昵称查皮肤失败。 */
+    val senderUuid: String? = null,
+    /** 频道规则解析结果；协议层不填。 */
+    val decorations: ChatDecorations? = null
 )
 
 /**

@@ -52,29 +52,32 @@ internal fun PlayerAvatar(
     name: String,
     online: Boolean,
     size: Dp = 40.dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    uuid: String? = null
 ) {
-    val key = name.trim()
-    var bitmap by remember(key) {
+    val nameKey = name.trim()
+    val uuidKey = uuid?.trim()?.takeIf { it.isNotEmpty() }
+    val cacheKey = (uuidKey ?: nameKey).lowercase()
+    var bitmap by remember(cacheKey) {
         mutableStateOf(
             synchronized(avatarCacheLock) {
-                avatarCache[key.lowercase()] ?: defaultSteveHeadCached
+                avatarCache[cacheKey] ?: defaultSteveHeadCached
             }
         )
     }
-    LaunchedEffect(key) {
-        if (key.isEmpty()) {
+    LaunchedEffect(cacheKey) {
+        if (cacheKey.isEmpty()) {
             bitmap = defaultSteveHeadCached
             return@LaunchedEffect
         }
-        val cached = synchronized(avatarCacheLock) { avatarCache[key.lowercase()] }
+        val cached = synchronized(avatarCacheLock) { avatarCache[cacheKey] }
         if (cached != null) {
             bitmap = cached
             return@LaunchedEffect
         }
-        val loaded = withContext(Dispatchers.IO) { loadSkinHead(key) }
+        val loaded = withContext(Dispatchers.IO) { loadSkinHead(nameKey, uuidKey) }
         if (loaded != null) {
-            synchronized(avatarCacheLock) { avatarCache[key.lowercase()] = loaded }
+            synchronized(avatarCacheLock) { avatarCache[cacheKey] = loaded }
             bitmap = loaded
         } else {
             bitmap = defaultSteveHeadCached
@@ -103,14 +106,33 @@ internal fun PlayerAvatar(
     }
 }
 
-private fun loadSkinHead(name: String): Bitmap? {
-    val encoded = Uri.encode(name.trim())
-    val urls = listOf(
-        "https://mc-heads.net/avatar/$encoded/64",
-        "https://minotar.net/helm/$encoded/64.png",
-        "https://crafthead.net/avatar/$encoded/64",
-        "https://crafatar.com/avatars/$encoded?size=64&overlay=true&default=MHF_Steve"
-    )
+private fun loadSkinHead(name: String, uuid: String? = null): Bitmap? {
+    val idRaw = uuid?.trim()?.takeIf { it.isNotEmpty() }
+    val idPlain = normalizePlayerUuid(idRaw)
+    val urls = buildList {
+        if (idRaw != null) {
+            val variants = linkedSetOf(idRaw, idPlain).filterNotNull()
+            for (id in variants) {
+                val enc = Uri.encode(id)
+                add("https://mc-heads.net/avatar/$enc/64")
+                add("https://crafthead.net/avatar/$enc/64")
+                add("https://crafatar.com/avatars/$enc?size=64&overlay=true")
+                add("https://minotar.net/helm/$enc/64.png")
+            }
+        }
+        val lookup = extractMcUsername(name) ?: name.trim().takeIf { it.isNotEmpty() }
+        if (lookup != null &&
+            !lookup.equals(idRaw, ignoreCase = true) &&
+            normalizePlayerUuid(lookup) != idPlain
+        ) {
+            val encoded = Uri.encode(lookup)
+            add("https://mc-heads.net/avatar/$encoded/64")
+            add("https://minotar.net/helm/$encoded/64.png")
+            add("https://crafthead.net/avatar/$encoded/64")
+            // 不用 default=MHF_Steve，避免把「查不到」当成成功皮肤写进缓存
+            add("https://crafatar.com/avatars/$encoded?size=64&overlay=true")
+        }
+    }
     for (url in urls) {
         val bmp = fetchBitmap(url) ?: continue
         if (bmp.width > 0 && bmp.height > 0) return scaleNearest(bmp, 64)

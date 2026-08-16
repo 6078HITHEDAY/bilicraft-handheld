@@ -170,9 +170,12 @@ internal fun ChannelChatScreen(
             BubbleChatLog(
                 log = log,
                 selfName = selfName,
+                selfUuid = vm.currentAccountUuid,
                 autoScroll = preferences.chatAutoScroll,
                 fontScale = preferences.chatFontScale,
                 quickReplies = preferences.quickReplies,
+                roster = roster,
+                chatParse = server.chatParse,
                 lastReadAt = unreadAnchorTs,
                 onDeleteLocal = { event ->
                     vm.removeLocalChatMessage(server.id, event.timestamp, event.plainText)
@@ -262,7 +265,7 @@ internal fun ChannelChatScreen(
             onSelectVersion = {},
             onForceSigning = {},
             onDismiss = { editing = false },
-            onSave = { name, host, port, version, signing ->
+            onSave = { name, host, port, version, signing, chatParse ->
                 vm.saveServer(
                     server.copy(
                         name = name.ifBlank { host },
@@ -270,7 +273,8 @@ internal fun ChannelChatScreen(
                         port = port.takeIf { it in 1..65535 } ?: 25565,
                         versionId = version.id,
                         protocolNumber = version.protocolNumber,
-                        signingRequired = signing
+                        signingRequired = signing,
+                        chatParse = chatParse
                     )
                 )
                 editing = false

@@ -49,12 +49,17 @@ class AppBhPluginHost(
         scope.launch {
             session.events.collect { event ->
                 if (event is SessionEvent.Chat) {
+                    val deco = event.event.decorations
                     _chatEvents.tryEmit(
                         BhChatEvent(
                             plainText = event.event.plainText,
                             rawJson = event.event.rawJson,
                             sender = event.event.sender,
-                            timestamp = event.event.timestamp
+                            timestamp = event.event.timestamp,
+                            player = deco?.player,
+                            title = deco?.title,
+                            faction = deco?.faction,
+                            server = deco?.server
                         )
                     )
                 }

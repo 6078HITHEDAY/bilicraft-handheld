@@ -66,7 +66,15 @@ data class BhChatEvent(
     val plainText: String,
     val rawJson: String,
     val sender: String?,
-    val timestamp: Long
+    val timestamp: Long,
+    /** 频道规则解析出的正版玩家名；未解析时为 null。 */
+    val player: String? = null,
+    /** 称号（如「建筑大师」）；未解析时为 null。 */
+    val title: String? = null,
+    /** 阵营标记；未解析时为 null。 */
+    val faction: String? = null,
+    /** 多服网络子服名（如 HY）；未解析时为 null。 */
+    val server: String? = null
 )
 
 /** 当前登录玩家信息。uuid 为无符号字符串（如 069a79f4-44e9-4726-a5be-fca90e38aaf5）。 */

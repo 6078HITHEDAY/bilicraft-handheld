@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilicraft.handheld.config.ServerConfig
 import com.bilicraft.handheld.config.ServerContact
+import com.bilicraft.handheld.config.matchesRoster
+import com.bilicraft.handheld.config.rosterUuid
 import com.bilicraft.handheld.protocol.RosterPlayer
 import com.bilicraft.handheld.ui.MainViewModel
 import com.bilicraft.handheld.ui.chat.PlayerAvatar
@@ -103,7 +105,7 @@ internal fun ContactsScreen(
         if (persisted != null) {
             onOpenDm(serverId, persisted.id)
         } else {
-            vm.openAutoContact(serverId, row.contact.playerName, row.contact.id) {
+            vm.openAutoContact(serverId, row.contact.playerName, row.contact.rosterUuid()) {
                 onOpenDm(serverId, it.id)
             }
         }
@@ -341,6 +343,7 @@ internal fun ContactsScreen(
 
     menuContact?.let { contact ->
         val sid = menuServerId
+        val persisted = contacts.any { it.id == contact.id }
         AlertDialog(
             onDismissRequest = {
                 menuContact = null
@@ -364,11 +367,13 @@ internal fun ContactsScreen(
                         menuContact = null
                         menuServerId = null
                     }) { Text("编辑备注") }
-                    TextButton(onClick = {
-                        vm.deleteContact(contact.id)
-                        menuContact = null
-                        menuServerId = null
-                    }) { Text("移除") }
+                    if (persisted) {
+                        TextButton(onClick = {
+                            vm.deleteContact(contact.id)
+                            menuContact = null
+                            menuServerId = null
+                        }) { Text("移除") }
+                    }
                 }
             },
             confirmButton = {
@@ -457,7 +462,12 @@ private fun ContactListRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        PlayerAvatar(name = row.contact.playerName, online = row.online, size = 42.dp)
+        PlayerAvatar(
+            name = row.contact.playerName,
+            uuid = row.contact.rosterUuid(),
+            online = row.online,
+            size = 42.dp
+        )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -499,7 +509,7 @@ private fun mergeContactRows(
     val byName = roster.associateBy { it.name.lowercase() }
     val byUuid = roster.associateBy { it.uuid }
     val rows = contacts.map { contact ->
-        val match = byUuid[contact.id] ?: byName[contact.playerName.lowercase()]
+        val match = byUuid[contact.rosterUuid()] ?: byUuid[contact.id] ?: byName[contact.playerName.lowercase()]
         ContactRow(
             contact = contact,
             online = match?.online == true,
@@ -507,10 +517,7 @@ private fun mergeContactRows(
         )
     }.toMutableList()
     roster.filter { it.online }.forEach { player ->
-        val exists = rows.any {
-            it.contact.id == player.uuid ||
-                it.contact.playerName.equals(player.name, ignoreCase = true)
-        }
+        val exists = rows.any { it.contact.matchesRoster(player.uuid, player.name) }
         if (!exists && serverId.isNotEmpty()) {
             rows.add(
                 ContactRow(

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilicraft.handheld.config.ServerConfig
 import com.bilicraft.handheld.config.ServerContact
+import com.bilicraft.handheld.config.rosterUuid
 import com.bilicraft.handheld.chat.filterDirectMessages
 import com.bilicraft.handheld.protocol.ConnectionState
 import com.bilicraft.handheld.ui.MainViewModel
@@ -63,7 +64,8 @@ internal fun DmChatScreen(
             }
             val online = runtime.rosters[server.id].orEmpty().any {
                 it.online && (
-                    it.uuid == contact.id ||
+                    it.uuid == contact.rosterUuid() ||
+                        it.uuid == contact.id ||
                         it.name.equals(contact.playerName, ignoreCase = true)
                     )
             }
@@ -99,9 +101,13 @@ internal fun DmChatScreen(
         BubbleChatLog(
             log = dmLog,
             selfName = selfName,
+            selfUuid = vm.currentAccountUuid,
             autoScroll = preferences.chatAutoScroll,
             fontScale = preferences.chatFontScale,
             quickReplies = preferences.quickReplies,
+            roster = runtime.rosters[server.id].orEmpty(),
+            preferredPeerName = contact.playerName,
+            preferredPeerUuid = contact.rosterUuid(),
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
         ChatComposer(

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -28,22 +29,19 @@ internal fun StatusDot(conn: ConnectionState) {
         conn is ConnectionState.LoggingIn ||
         conn is ConnectionState.Reconnecting
     val animatePulse = pulsing && motionEnabled()
-    val scale = if (animatePulse) {
-        val pulseMs = motionDurationMs(700).coerceAtLeast(1)
-        val transition = rememberInfiniteTransition(label = "statusPulse")
-        val animated by transition.animateFloat(
-            initialValue = 0.85f,
-            targetValue = 1.25f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(pulseMs),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "pulseScale"
-        )
-        animated
-    } else {
-        1f
-    }
+    // 始终调用 remember*，避免条件 composable 打乱 slot（H3）
+    val pulseMs = motionDurationMs(700).coerceAtLeast(1)
+    val transition = rememberInfiniteTransition(label = "statusPulse")
+    val animated by transition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(pulseMs),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+    val scale = if (animatePulse) animated else 1f
     Box(
         Modifier
             .size(10.dp)

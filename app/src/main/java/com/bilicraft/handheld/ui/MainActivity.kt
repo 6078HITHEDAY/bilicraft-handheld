@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -34,10 +35,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppContainer.init(applicationContext)
         requestNotificationPermissionIfNeeded()
-        handleDeepLink(intent)
+        // 深链延后到 configLoaded：避免读到 prefs 默认值（H2）
 
         setContent {
             val preferences by vm.preferences.collectAsStateWithLifecycle()
+            val configLoaded by vm.configLoaded.collectAsStateWithLifecycle()
+            LaunchedEffect(configLoaded, intent) {
+                if (configLoaded) {
+                    handleDeepLink(intent)
+                }
+            }
             BilicraftTheme(themeMode = preferences.themeMode) {
                 Surface(Modifier.fillMaxSize()) {
                     AppRoot(vm)
@@ -49,14 +56,20 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleDeepLink(intent)
+        if (vm.configLoaded.value) {
+            handleDeepLink(intent)
+        }
     }
 
     private fun handleDeepLink(intent: Intent?) {
         if (intent == null) return
-        if (vm.preferences.value.notificationTapBehavior != NotificationTapBehavior.OpenChannel) return
-        val serverId = DeepLinkExtras.serverIdFrom(intent) ?: return
-        vm.offerDeepLinkServerId(serverId)
+        val behavior = vm.preferences.value.notificationTapBehavior
+        val serverId = DeepLinkExtras.serverIdFrom(intent)
+        val configLoaded = vm.configLoaded.value
+        if (!configLoaded) return
+        if (behavior != NotificationTapBehavior.OpenChannel) return
+        val id = serverId ?: return
+        vm.offerDeepLinkServerId(id)
         intent.removeExtra(DeepLinkExtras.SERVER_ID)
         intent.removeExtra(DeepLinkExtras.SERVER_ID_LEGACY)
     }

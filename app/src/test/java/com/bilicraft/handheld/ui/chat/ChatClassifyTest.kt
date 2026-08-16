@@ -1,5 +1,7 @@
 package com.bilicraft.handheld.ui.chat
 
+import com.bilicraft.handheld.config.ChatParseConfig
+import com.bilicraft.handheld.config.ChatParsePreset
 import com.bilicraft.handheld.protocol.ChatEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -10,6 +12,8 @@ import org.junit.Test
  * 覆盖：私聊进出方向、群聊角括号解析、进出服/死亡/成就等系统句识别、无发送者兜底。
  */
 class ChatClassifyTest {
+
+    private val bilicraftParse = ChatParseConfig(preset = ChatParsePreset.Bilicraft)
 
     private fun chat(plain: String, sender: String? = null, dmPeer: String? = null) =
         ChatEvent(plain, "", sender = sender, dmPeer = dmPeer)
@@ -40,6 +44,64 @@ class ChatClassifyTest {
         assertEquals(BubbleKind.Self, c.kind)
         assertEquals("Me", c.senderLabel)
         assertEquals("hello", c.bodyPlain)
+    }
+
+    @Test
+    fun `带前缀的自己发言仍归为自己并用正版名`() {
+        val c = classifyChat(chat("<[VIP] Me> hello", sender = "[VIP] Me"), "Me")
+        assertEquals(BubbleKind.Self, c.kind)
+        assertEquals("Me", c.senderLabel)
+    }
+
+    @Test
+    fun `senderUuid 匹配自己时归为自己气泡`() {
+        val c = classifyChat(
+            ChatEvent("<Nick> hi", "", sender = "Nick", senderUuid = "aaaa-bbbb-cccc-dddd"),
+            "Me",
+            selfUuid = "aaaabbbbccccdddd"
+        )
+        assertEquals(BubbleKind.Self, c.kind)
+        assertEquals("Me", c.senderLabel)
+    }
+
+    @Test
+    fun `Bilicraft 配置从正文解析真名与装饰`() {
+        val c = classifyChat(
+            chat("आ[建筑大师] │ Quartz_Crystal: 这玩意儿咋搞", sender = "HY"),
+            "Me",
+            parse = bilicraftParse
+        )
+        assertEquals(BubbleKind.Other, c.kind)
+        assertEquals("Quartz_Crystal", c.senderLabel)
+        assertEquals("这玩意儿咋搞", c.bodyPlain)
+        assertEquals("आ", c.event.decorations?.faction)
+        assertEquals("建筑大师", c.event.decorations?.title)
+        assertEquals("Quartz_Crystal", c.event.decorations?.player)
+        assertEquals("HY", c.event.decorations?.server)
+    }
+
+    @Test
+    fun `Bilicraft 正文里自己的名字归为自己`() {
+        val c = classifyChat(
+            chat("आ[建筑大师] │ Me: hello from pipe", sender = "HY"),
+            "Me",
+            parse = bilicraftParse
+        )
+        assertEquals(BubbleKind.Self, c.kind)
+        assertEquals("Me", c.senderLabel)
+        assertEquals("hello from pipe", c.bodyPlain)
+    }
+
+    @Test
+    fun `Vanilla 不把 HY 正文当碧玺解析`() {
+        val c = classifyChat(
+            chat("आ[建筑大师] │ Quartz_Crystal: hi", sender = "HY"),
+            "Me",
+            parse = ChatParseConfig(preset = ChatParsePreset.Vanilla)
+        )
+        assertEquals(BubbleKind.Other, c.kind)
+        assertEquals("HY", c.senderLabel)
+        assertNull(c.event.decorations)
     }
 
     @Test
